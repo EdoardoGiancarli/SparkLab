@@ -1,4 +1,4 @@
-name: stardust
+name: spark
 channels:
   - conda-forge
   - https://repo.anaconda.com/pkgs/main
