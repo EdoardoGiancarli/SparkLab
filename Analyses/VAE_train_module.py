@@ -22,9 +22,9 @@ from torchvision.transforms import Compose
 import wandb
 from wandb import Run
 
-import stardust as sp
-from stardust.inspect import OutputManager
-from stardust.processing import normalise
+import spark as pk
+from spark.inspect import OutputManager
+from spark.processing import normalise
 
 from BASE_train_routine import training_setup
 
@@ -222,7 +222,7 @@ def train_model(
         running_valid_batches = 0
         running_valid_loss = 0.0
 
-        with torch.no_grad(), sp.forward_data_capture(model.fc_estim_mean, latent_space_hook):
+        with torch.no_grad(), pk.forward_data_capture(model.fc_estim_mean, latent_space_hook):
             for batch, (x_batch, y_batch) in enumerate(islice(valid_dl, vdl_len)):
                 loop.set_postfix({'batch': f'{batch + 1}/{vdl_len}'})
 
@@ -305,7 +305,7 @@ def main(
 
     # -------------------  DATASET HANDLING  ------------------- #
     mnist = MNIST(root=f'{basepath}/MNIST', train=False, transform=PREPROCESSING, download=False)
-    train_dl, valid_dl = sp.get_dataloaders(mnist, BATCH_SIZE, VALID_SIZE)
+    train_dl, valid_dl = pk.get_dataloaders(mnist, BATCH_SIZE, VALID_SIZE)
 
     # -------------------  MODEL INIT  ------------------- #
     vae = MockVAE(LATENT_DIM, hid_channel=HIDDEN_CHANNELS)
@@ -347,7 +347,7 @@ def main(
     # -------------------  SAVING STUFF  ------------------- #
     model_path = f'{basepath}/mockVAEmodel_MNIST.pt'
     if not Path(model_path).exists():
-        sp.save_model(
+        pk.save_model(
             state_dict=vae.state_dict(),
             save_to=model_path,
             info={

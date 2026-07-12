@@ -15,8 +15,8 @@ from torch.utils.data import Dataset, DataLoader
 from torch.types import Tensor
 from torchvision.transforms import Compose
 
-import stardust as sd
-from stardust.handle import get_data_filespaths
+import spark as pk
+from spark.handle import get_data_filespaths
 
 
 def benchmark_func(
@@ -69,7 +69,7 @@ class ImageDataset(Dataset):
     """
     def __init__(self, data_path: str | Path, transform: Compose | None) -> None:
         files_list = get_data_filespaths(data_path, shuffle=True)
-        self.data = sd.process_data(files_list, lambda img: Image.open(img).convert('L'), transform)
+        self.data = pk.process_data(files_list, lambda img: Image.open(img).convert('L'), transform)
     
     def __len__(self) -> int:
         return len(self.data)
@@ -133,8 +133,8 @@ def main() -> None:
     BATCH_SIZE: int = 100
     VALID_SIZE: int = 0.2
 
-    dataset: Dataset = sd.load_dataset(f'{BASEPATH}/{DATASET_ID}.pt')
-    train_dl, valid_dl = sd.get_dataloaders(dataset, BATCH_SIZE, VALID_SIZE)
+    dataset: Dataset = pk.load_dataset(f'{BASEPATH}/{DATASET_ID}.pt')
+    train_dl, valid_dl = pk.get_dataloaders(dataset, BATCH_SIZE, VALID_SIZE)
 
     ITERATIONS: int = 3
     b1 = benchmark_func(train_loop_separated, train_dl, valid_dl, EPOCHS, iterations=ITERATIONS)
