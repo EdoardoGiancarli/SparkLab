@@ -67,7 +67,7 @@ def get_dataloaders(
     **kwargs,
 ) -> tuple[DataLoader, DataLoader | None]:
     """Training and Validation dataset loaders generation."""
-    if valid_size and not (0.0 <= valid_size < 1.0):
+    if valid_size and not (0.0 < valid_size < 1.0):
         raise ValueError(f"Invalid 'valid_size' value {valid_size}, must be in [0, 1).")
     
     print('Baking DataLoaders...')    

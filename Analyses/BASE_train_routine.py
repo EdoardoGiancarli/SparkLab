@@ -148,7 +148,7 @@ def basic_train_model(
 
 from typing import NamedTuple
 from torch.types import Tensor
-from stardust.inspect import forward_data_capture, OutputManager
+from spark.inspect import forward_data_capture, OutputManager
 
 
 class TrainResults(NamedTuple):
