@@ -5,7 +5,7 @@ Module for mock VAE training with wandb logging.
 from itertools import islice
 import logging
 from pathlib import Path
-from typing import Any, NamedTuple
+from typing import Any, Callable, NamedTuple
 import warnings
 
 from tqdm import tqdm
@@ -25,8 +25,6 @@ from wandb import Run
 import spark as pk
 from spark.inspect import OutputManager
 from spark.processing import normalise
-
-from BASE_train_routine import training_setup
 
 
 class LatentVector(NamedTuple):
@@ -142,6 +140,34 @@ def vae_loss(pred: Tensor, target: Tensor) -> Tensor:
 
 
 # _________________________________  TRAINING ROUTINE  _________________________________ #
+
+def training_setup(
+    model: nn.Module,
+    loss: Callable,
+    optimiser: Callable,
+    scheduler: Callable,
+    device: str,
+) -> dict[str, Callable]:
+    """
+    Creates a container with training operations.
+    NOTE:
+        * the scheduler refers to the learning rate.
+        * other schedulers for log train/valid loss vals,
+          checkpoints, wandb are NOT accounted for as of now  
+    """
+    print(f'## Operating on device: {device}.')
+    setup: dict[str, Any] = {
+        'model': model,
+        'loss': loss,
+        'optimiser': optimiser,
+        'scheduler': scheduler,
+        'device': device,
+    }
+    n_params = sum(p.numel() for p in model.parameters())
+    print(f'## Model parameters: {n_params}.')
+    return setup
+
+
 def safe_wandb_log(logger: Run, data: dict[str, Any], epoch: int):
     try:
         logger.log(data, step=epoch)

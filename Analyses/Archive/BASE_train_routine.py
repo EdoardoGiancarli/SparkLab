@@ -13,33 +13,6 @@ from torch.utils.data import DataLoader
 from torch.amp import GradScaler, autocast
 
 
-def training_setup(
-    model: nn.Module,
-    loss: Callable,
-    optimiser: Callable,
-    scheduler: Callable,
-    device: str,
-) -> dict[str, Callable]:
-    """
-    Creates a container with training operations.
-    NOTE:
-        * the scheduler refers to the learning rate.
-        * other schedulers for log train/valid loss vals,
-          checkpoints, wandb are NOT accounted for as of now  
-    """
-    print(f'## Operating on device: {device}.')
-    setup: dict[str, Any] = {
-        'model': model,
-        'loss': loss,
-        'optimiser': optimiser,
-        'scheduler': scheduler,
-        'device': device,
-    }
-    n_params = sum(p.numel() for p in model.parameters())
-    print(f'## Model parameters: {n_params}.')
-    return setup
-
-
 def basic_train_model(
     params: dict[str, Any],
     train_dl: DataLoader,

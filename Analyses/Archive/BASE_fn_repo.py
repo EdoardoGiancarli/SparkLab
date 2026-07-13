@@ -36,7 +36,7 @@ def extract_batches(dataloader: DataLoader) -> list[Tensor]:
 
 
 # ___________________ TESTING OPs ___________________ #
-from stardust.inspect import errors_handler
+from spark.inspect import errors_handler
 
 def test_hook_works(container: list, hook_fn: Callable, n: int = 5) -> None:
     for idx in range(n):
