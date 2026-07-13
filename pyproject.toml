@@ -22,14 +22,5 @@ dependencies = [
 ]
 
 
-[dependency.tools]
-dev = ["unittest"]
-
-
 [tools.setuptools.packages.find]
 where = ["src"]
-
-
-[tools.unittest.ini_options]
-testpaths = ["tests"]
-pythonpath = ["src"]
