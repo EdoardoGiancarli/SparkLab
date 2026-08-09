@@ -22,5 +22,6 @@ dependencies = [
 ]
 
 
-[tools.setuptools.packages.find]
-where = ["src"]
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["spark*"]
