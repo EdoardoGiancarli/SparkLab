@@ -43,22 +43,16 @@ def exists(value: Any) -> bool:
     """Checks input `value` existence."""
     return value is not None
 
-def Downsample(chs: int) -> Callable[[Tensor], Tensor]:
-    """
-    Defines a downsampling operation with `kernel_size=4`,
-    `stride=2` and `padding=1` through a `nn.Conv2d` obj.
-    """
-    return nn.Conv2d(chs, chs, 4, 2, 1)
+def Downsample(chs: int, ksize: int = 4, stride: int = 2, pad: int = 1) -> Callable[[Tensor], Tensor]:
+    """Defines a downsampling operation through a `nn.Conv2d` obj."""
+    return nn.Conv2d(chs, chs, ksize, stride, pad)
 
-def Upsample(chs: int) -> Callable[[Tensor], Tensor]:
-    """
-    Defines an upsampling operation with `kernel_size=4`,
-    `stride=2` and `padding=1` through a `nn.ConvTranspose2d` obj.
-    """
-    return nn.ConvTranspose2d(chs, chs, 4, 2, 1)
+def Upsample(chs: int, ksize: int = 4, stride: int = 2, pad: int = 1) -> Callable[[Tensor], Tensor]:
+    """Defines an upsampling operation through a `nn.ConvTranspose2d` obj."""
+    return nn.ConvTranspose2d(chs, chs, ksize, stride, pad)
 
 def modulate(x: Tensor, scale: Tensor, shift: Tensor) -> Tensor:
-    """Modulates input features with adaptive scale and shift."""
+    """Modulates input features with given scale and shift."""
     return (1 + scale) * x + shift
 
 
@@ -117,7 +111,10 @@ class Block(nn.Module):
 
 
 class ResnetBlock(nn.Module):
-    """Residual block from: https://arxiv.org/abs/1512.03385"""
+    """
+    Residual block from: https://arxiv.org/abs/1512.03385,
+    with AdaGN-zero implementation for time embeddings.
+    """
     def __init__(
         self,
         dim: int,
@@ -155,7 +152,7 @@ class ResnetBlock(nn.Module):
 class ConvNextBlock(nn.Module):
     """
     Residual block from: https://arxiv.org/abs/2201.03545,
-    with AdaGN implementation for time embeddings.
+    with AdaGN-zero implementation for time embeddings.
     """
     def __init__(
         self,
@@ -310,7 +307,8 @@ class SinPosEmbedding(nn.Module):
 class TimeEmbedding(nn.Module):
     """
     Time-step embedding based on sinusoidal encoding for the diffusion process.
-    Returns tuple of parameters for Adaptive Group Normalisation.
+    The instance accounts for positional encoding and mid-MLP processing (the
+    final projection to scale and shift is moved within the residual blocks).
     """
     def __init__(self, dim: int, emb_chs: int) -> None:
         super().__init__()
