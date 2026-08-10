@@ -41,6 +41,9 @@ __all__ = [
 
     'SinPosEmbedding',
     'TimeEmbedding',
+
+    'SelfAttention',        # inserted for doc, not necessarily used
+    'LinearSelfAttention',  # inserted for doc, not necessarily used
 ]
 
 
@@ -252,6 +255,9 @@ class Attention(nn.Module):
         k, v = map(lambda t: t.view(b, self.heads, -1, h_c * w_c), kv)
 
         q = q * self.scale
+        # einsum faster and more memory efficient wrt matmul
+        # https://stackoverflow.com/questions/67144036/performance-difference-between-einsum-and-matmul
+        # https://discuss.pytorch.org/t/gpu-speed-and-memory-difference-between-einsum-and-matmul/164493/2
         sim = torch.einsum('bhdi, bhdj -> bhij', q, k)
         # safe softmax norm to prevent numerical overflow / NaN values
         sim = sim - sim.amax(dim=-1, keepdim=True).detach()
@@ -299,6 +305,9 @@ class LinearAttention(nn.Module):
 
         q = q.softmax(dim=-2) * self.scale
         k = k.softmax(dim=-1)
+        # einsum faster and more memory efficient wrt matmul
+        # https://stackoverflow.com/questions/67144036/performance-difference-between-einsum-and-matmul
+        # https://discuss.pytorch.org/t/gpu-speed-and-memory-difference-between-einsum-and-matmul/164493/2
         context_mat = torch.einsum('bhdn, bhen -> bhde', k, v)
 
         out = torch.einsum('bhde, bhdn -> bhen', context_mat, q)
@@ -349,51 +358,51 @@ class TimeEmbedding(nn.Module):
 # end
 
 
-# class SelfAttention(nn.Module):
-#     """Spatial multi-head self-attention module."""
-#     def __init__(self, dim: int, heads: int = 4, dim_head: int = 32) -> None:
-#         super().__init__()
-#         self.scale = pow(dim_head, -0.5)
-#         self.heads = heads
-#         hidden_dim = dim_head * heads
-#         self.to_qkv = nn.Conv2d(dim, 3 * hidden_dim, 1, bias=False)
-#         self.to_out = nn.Conv2d(hidden_dim, dim, 1)
+class SelfAttention(nn.Module):
+    """Spatial multi-head self-attention module."""
+    def __init__(self, dim: int, heads: int = 4, dim_head: int = 32) -> None:
+        super().__init__()
+        self.scale = pow(dim_head, -0.5)
+        self.heads = heads
+        hidden_dim = dim_head * heads
+        self.to_qkv = nn.Conv2d(dim, 3 * hidden_dim, 1, bias=False)
+        self.to_out = nn.Conv2d(hidden_dim, dim, 1)
 
-#     def forward(self, x: Tensor) -> Tensor:
-#         b, _, h, w = x.shape
-#         qkv = self.to_qkv(x).chunk(3, dim=1)
-#         q, k, v = map(lambda t: t.view(b, self.heads, -1, h * w), qkv)
-#         q = q * self.scale
-#         sim = torch.einsum('bhdi, bhdj -> bhij', q, k)
-#         # safe softmax norm to prevent numerical overflow / NaN values
-#         sim = sim - sim.amax(dim=-1, keepdim=True).detach()
-#         attn = sim.softmax(dim=-1)
-#         out = torch.einsum('bhij, bhdj -> bhdi', attn, v)
-#         out = out.reshape(b, -1, h, w)
-#         return self.to_out(out)
+    def forward(self, x: Tensor) -> Tensor:
+        b, _, h, w = x.shape
+        qkv = self.to_qkv(x).chunk(3, dim=1)
+        q, k, v = map(lambda t: t.view(b, self.heads, -1, h * w), qkv)
+        q = q * self.scale
+        sim = torch.einsum('bhdi, bhdj -> bhij', q, k)
+        # safe softmax norm to prevent numerical overflow / NaN values
+        sim = sim - sim.amax(dim=-1, keepdim=True).detach()
+        attn = sim.softmax(dim=-1)
+        out = torch.einsum('bhij, bhdj -> bhdi', attn, v)
+        out = out.reshape(b, -1, h, w)
+        return self.to_out(out)
 
 
-# class LinearSelfAttention(nn.Module):
-#     """Spatial multi-head self-attention module, linear variant."""
-#     def __init__(self, dim: int, heads: int = 4, dim_head: int = 32) -> None:
-#         super().__init__()
-#         self.scale = pow(dim_head, -0.5)
-#         self.heads = heads
-#         hidden_dim = dim_head * heads
-#         self.to_qkv = nn.Conv2d(dim, 3 * hidden_dim, 1, bias=False)
-#         self.to_out = nn.Sequential(
-#             nn.Conv2d(hidden_dim, dim, 1), 
-#             nn.GroupNorm(1, dim)
-#         )
+class LinearSelfAttention(nn.Module):
+    """Spatial multi-head self-attention module, linear variant."""
+    def __init__(self, dim: int, heads: int = 4, dim_head: int = 32) -> None:
+        super().__init__()
+        self.scale = pow(dim_head, -0.5)
+        self.heads = heads
+        hidden_dim = dim_head * heads
+        self.to_qkv = nn.Conv2d(dim, 3 * hidden_dim, 1, bias=False)
+        self.to_out = nn.Sequential(
+            nn.Conv2d(hidden_dim, dim, 1), 
+            nn.GroupNorm(1, dim)
+        )
 
-#     def forward(self, x: Tensor) -> Tensor:
-#         b, _, h, w = x.shape
-#         qkv = self.to_qkv(x).chunk(3, dim=1)
-#         q, k, v = map(lambda t: t.view(b, self.heads, -1, h * w), qkv)
-#         q = q.softmax(dim=-2)
-#         k = k.softmax(dim=-1)
-#         q = q * self.scale
-#         context = torch.einsum('bhdn, bhen -> bhde', k, v)
-#         out = torch.einsum('bhde, bhdn -> bhen', context, q)
-#         out = out.reshape(b, -1, h, w)
-#         return self.to_out(out)
+    def forward(self, x: Tensor) -> Tensor:
+        b, _, h, w = x.shape
+        qkv = self.to_qkv(x).chunk(3, dim=1)
+        q, k, v = map(lambda t: t.view(b, self.heads, -1, h * w), qkv)
+        q = q.softmax(dim=-2)
+        k = k.softmax(dim=-1)
+        q = q * self.scale
+        context = torch.einsum('bhdn, bhen -> bhde', k, v)
+        out = torch.einsum('bhde, bhdn -> bhen', context, q)
+        out = out.reshape(b, -1, h, w)
+        return self.to_out(out)
