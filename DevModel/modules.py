@@ -15,6 +15,7 @@ References:
 
 import math
 from typing import Any, Callable, Optional
+import warnings
 
 import torch
 import torch.nn as nn
@@ -30,6 +31,7 @@ __all__ = [
     'PreGroupNorm',
     'ResidualConnection',
     
+    'project_adaptive_params',
     'Block',
     'ResnetBlock',
     'ConvNextBlock',
@@ -94,6 +96,29 @@ class ResidualConnection(nn.Module):
     
 
 
+def project_adaptive_params(*modules: Any, zero_init: bool = True) -> nn.Sequential:
+    """
+    Generates sequential container with given modules for `scale` and
+    `shift` parameters projection used in adaptive group/layer norm.
+    The last level can be initialised with zero weight and bias for
+    adaptive zero-init, proved to increase training stability.
+    """
+    proj = nn.Sequential(*modules)
+
+    if zero_init and len(proj) > 0:
+        last = proj[-1]
+        weight = getattr(last, 'weight', None)
+        bias = getattr(last, 'bias', None)
+
+        if not all(map(exists, (weight, bias))):
+            warnings.warn(f"Zero-Init failed: proj layer '{last}' does not have weight/bias.")
+        else:
+            nn.init.zeros_(weight)
+            nn.init.zeros_(bias)
+    
+    return proj
+
+
 class Block(nn.Module):
     """Model block architecture with optional AdaGN parameters."""
     def __init__(self, dim: int, dim_out: int, groups: int = 8) -> None:
@@ -133,12 +158,9 @@ class ResnetBlock(nn.Module):
 
         # AdaGN with zero init for training stability
         self.proj = (
-            nn.Sequential(nn.SiLU(), nn.Linear(time_emb_dim, 2 * dim_out))
+            project_adaptive_params(nn.SiLU(), nn.Linear(time_emb_dim, 2 * dim_out))
             if exists(time_emb_dim) else None
         )
-        if exists(self.proj):
-            nn.init.zeros_(self.proj[-1].weight)
-            nn.init.zeros_(self.proj[-1].bias)
 
     def forward(self, x: Tensor, time_emb: Optional[Tensor] = None) -> Tensor:
         scale_shift = None
@@ -179,12 +201,9 @@ class ConvNextBlock(nn.Module):
 
         # AdaGN with zero init for training stability
         self.proj = (
-            nn.Sequential(nn.GELU(), nn.Linear(time_emb_dim, 2 * dim))
+            project_adaptive_params(nn.GELU(), nn.Linear(time_emb_dim, 2 * dim))
             if exists(time_emb_dim) else None
         )
-        if exists(self.proj):
-            nn.init.zeros_(self.proj[-1].weight)
-            nn.init.zeros_(self.proj[-1].bias)
 
     def forward(self, x: Tensor, time_emb: Optional[Tensor] = None) -> Tensor:
         h = self.ds_conv(x)
