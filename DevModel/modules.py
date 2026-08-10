@@ -2,12 +2,15 @@
 Script with U-Net arch modules.
 
 References:
-    [1] Phil Wang's `denoising-diffusion-pytorch`: https://github.com/lucidrains/denoising-diffusion-pytorch/tree/main
-    [2] Annotated Diffusion, Niels Rogge and Kashif Rasul (with refs inside, nicely detailed)
+    * Phil Wang's `denoising-diffusion-pytorch`: https://github.com/lucidrains/denoising-diffusion-pytorch/tree/main
+    * Annotated Diffusion, Niels Rogge and Kashif Rasul (with refs inside, nicely detailed)
         https://colab.research.google.com/github/huggingface/notebooks/blob/main/examples/annotated_diffusion.ipynb#scrollTo=51d9a24c
-    [3] The Principles of Diffusion Models, Lai et al. (pre-release book, 2026): https://arxiv.org/abs/2510.21890
-    [4] APXML website (general info gathering): https://apxml.com/courses/advanced-diffusion-architectures
-    [5] Original papers
+    * The Principles of Diffusion Models, Lai et al. (pre-release book, 2026): https://arxiv.org/abs/2510.21890
+    * Sasha Rush et al., blog (Transformer): https://nlp.seas.harvard.edu/annotated-transformer/
+    * Jay Alammar's blog (Transformer): https://jalammar.github.io/illustrated-transformer/
+    * Lilian Weng's blog (Diffusion Models): https://lilianweng.github.io/posts/2021-07-11-diffusion-models/
+    * APXML website (general info gathering): https://apxml.com/courses/advanced-diffusion-architectures
+    * Original papers
 """
 
 import math
