@@ -2,7 +2,8 @@
 Script with U-Net arch modules.
 
 References:
-    * Phil Wang's `denoising-diffusion-pytorch`: https://github.com/lucidrains/denoising-diffusion-pytorch/tree/main
+    * Phil Wang's `denoising-diffusion-pytorch`: https://github.com/lucidrains/denoising-diffusion-pytorch/tree/main,
+      CFG script (https://github.com/lucidrains/denoising-diffusion-pytorch/blob/main/denoising_diffusion_pytorch/classifier_free_guidance.py)
     * Annotated Diffusion, Niels Rogge and Kashif Rasul (with refs inside, nicely detailed)
         https://colab.research.google.com/github/huggingface/notebooks/blob/main/examples/annotated_diffusion.ipynb#scrollTo=51d9a24c
     * The Principles of Diffusion Models, Lai et al. (pre-release book, 2026): https://arxiv.org/abs/2510.21890
@@ -19,6 +20,7 @@ import warnings
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torch.types import Tensor
 
 
@@ -28,6 +30,7 @@ __all__ = [
     'Upsample',
     'modulate',
 
+    'RMSNorm',
     'PreGroupNorm',
     'ResidualConnection',
     
@@ -66,18 +69,42 @@ def modulate(x: Tensor, scale: Tensor, shift: Tensor) -> Tensor:
 
 
 
-class PreGroupNorm(nn.Module):
+class RMSNorm(nn.Module):
     """
-    Group normalisation applied before a given module [1, 2].
+    Applies Root Mean Square Layer Normalization over a mini-batch of inputs, as
+    described in https://arxiv.org/pdf/1910.07467.pdf.
+    This custom version (in denoising_diffusion_pytorch/classifier_free_guidance)
+    is designed for spatial diffusion and performs norm across channels.
+    """
+    def __init__(
+        self,
+        dim: int,
+        eps: float = 1e-12,
+        dtype = None,
+        device = None,
+    ) -> None:
+        super().__init__()
+        factory_kws = {'dtype': dtype, 'device': device}
+        self.gamma = nn.Parameter(torch.ones(1, dim, 1, 1, **factory_kws))
+        self.eps = eps
+
+    def forward(self, x: Tensor) -> Tensor:
+        return (x.shape[1] ** 0.5) * F.normalize(x, dim=1, eps=self.eps) * self.gamma
+    
+
+class PreNorm(nn.Module):
+    """
+    Normalisation applied before a given module [1, 2],
+    performed through either RMSNorm or GroupNorm.
     The DDPM authors interleave the Conv/Attention layers
     of the U-Net with group normalization (Wu et al., 2018).
     Note that there's been a debate about whether to apply
     normalisation before or after Attention in Transformers.
     """
-    def __init__(self, dim: int, fn: Callable) -> None:
+    def __init__(self, dim: int, fn: Callable, rmsnorm: bool = True) -> None:
         super().__init__()
         self.fn = fn
-        self.norm = nn.GroupNorm(1, dim)
+        self.norm = RMSNorm(dim) if rmsnorm else nn.GroupNorm(1, dim)
 
     def forward(self, x: Tensor) -> Tensor:
         x = self.norm(x)
@@ -123,11 +150,11 @@ def project_adaptive_params(*modules: Any, zero_init: bool = True) -> nn.Sequent
 
 
 class Block(nn.Module):
-    """Model block architecture with optional AdaGN parameters."""
-    def __init__(self, dim: int, dim_out: int, groups: int = 8) -> None:
+    """Model block architecture with optional AdaGN or AdaLN parameters."""
+    def __init__(self, dim: int, dim_out: int, groups: int = 8, rmsnorm: bool = True) -> None:
         super().__init__()
         self.conv = nn.Conv2d(dim, dim_out, 3, padding=1)
-        self.norm = nn.GroupNorm(groups, dim_out)
+        self.norm = RMSNorm(dim_out) if rmsnorm else nn.GroupNorm(groups, dim_out)
         self.act = nn.SiLU()
 
     def forward(self, x: Tensor, scale_shift: Optional[tuple[Tensor, Tensor]] = None) -> Tensor:
@@ -143,8 +170,8 @@ class Block(nn.Module):
 
 class ResnetBlock(nn.Module):
     """
-    Residual block from: https://arxiv.org/abs/1512.03385,
-    with AdaGN-zero implementation for time embeddings.
+    Residual block from: https://arxiv.org/abs/1512.03385, with
+    AdaGN-Zero or AdaLN-Zero implementation for time embeddings.
     """
     def __init__(
         self,
@@ -153,13 +180,14 @@ class ResnetBlock(nn.Module):
         *,
         time_emb_dim: Optional[int] = None,
         groups: int = 8,
+        rmsnorm: bool = True,
     ) -> None:
         super().__init__()
-        self.block1 = Block(dim, dim_out, groups=groups)
-        self.block2 = Block(dim_out, dim_out, groups=groups)
+        self.block1 = Block(dim, dim_out, groups=groups, rmsnorm=rmsnorm)
+        self.block2 = Block(dim_out, dim_out, groups=groups, rmsnorm=rmsnorm)
         self.res_conv = nn.Conv2d(dim, dim_out, 1) if dim != dim_out else nn.Identity()
 
-        # AdaGN with zero init for training stability
+        # AdaGN- or AdaLN-Zero (training stability)
         self.proj = (
             project_adaptive_params(nn.SiLU(), nn.Linear(time_emb_dim, 2 * dim_out))
             if exists(time_emb_dim) else None
@@ -179,8 +207,8 @@ class ResnetBlock(nn.Module):
 
 class ConvNextBlock(nn.Module):
     """
-    Residual block from: https://arxiv.org/abs/2201.03545,
-    with AdaGN-zero implementation for time embeddings.
+    Residual block from: https://arxiv.org/abs/2201.03545, with
+    AdaGN-Zero or AdaLN-Zero implementation for time embeddings.
     """
     def __init__(
         self,
@@ -190,19 +218,24 @@ class ConvNextBlock(nn.Module):
         time_emb_dim: Optional[int] = None,
         mult: int = 2,
         norm: bool = True,
+        rmsnorm: bool = True,
     ) -> None:
         super().__init__()
         self.ds_conv = nn.Conv2d(dim, dim, 7, padding=3, groups=dim)
-        self.norm = nn.GroupNorm(1, dim) if norm else nn.Identity()
+        if norm:
+            self.norm = RMSNorm(dim) if rmsnorm else nn.GroupNorm(1, dim)
+        else:
+            self.norm = nn.Identity()
+        
         self.net = nn.Sequential(
             nn.Conv2d(dim, dim_out * mult, 3, padding=1),
             nn.GELU(),
-            nn.GroupNorm(1, dim_out * mult),
+            RMSNorm(dim_out * mult) if rmsnorm else nn.GroupNorm(1, dim_out * mult),
             nn.Conv2d(dim_out * mult, dim_out, 3, padding=1),
         )
         self.res_conv = nn.Conv2d(dim, dim_out, 1) if dim != dim_out else nn.Identity()
 
-        # AdaGN with zero init for training stability
+        # AdaGN- or AdaLN-Zero (training stability)
         self.proj = (
             project_adaptive_params(nn.GELU(), nn.Linear(time_emb_dim, 2 * dim))
             if exists(time_emb_dim) else None
@@ -279,6 +312,7 @@ class LinearAttention(nn.Module):
         heads: int = 4,
         dim_head: int = 32,
         context_dim: Optional[int] = None,
+        rmsnorm: bool = True,
     ) -> None:
         super().__init__()
         self.scale = pow(dim_head, -0.5)
@@ -290,7 +324,7 @@ class LinearAttention(nn.Module):
         self.to_kv = nn.Conv2d(context_dim, 2 * hidden_dim, 1, bias=False)
         self.to_out = nn.Sequential(
             nn.Conv2d(hidden_dim, dim, 1), 
-            nn.GroupNorm(1, dim)
+            RMSNorm(dim) if rmsnorm else nn.GroupNorm(1, dim),
         )
     
     def forward(self, x: Tensor, context: Optional[Tensor] = None) -> Tensor:
@@ -384,7 +418,7 @@ class SelfAttention(nn.Module):
 
 class LinearSelfAttention(nn.Module):
     """Spatial multi-head self-attention module, linear variant."""
-    def __init__(self, dim: int, heads: int = 4, dim_head: int = 32) -> None:
+    def __init__(self, dim: int, heads: int = 4, dim_head: int = 32, rmsnorm: bool = True) -> None:
         super().__init__()
         self.scale = pow(dim_head, -0.5)
         self.heads = heads
@@ -392,7 +426,7 @@ class LinearSelfAttention(nn.Module):
         self.to_qkv = nn.Conv2d(dim, 3 * hidden_dim, 1, bias=False)
         self.to_out = nn.Sequential(
             nn.Conv2d(hidden_dim, dim, 1), 
-            nn.GroupNorm(1, dim)
+            RMSNorm(dim) if rmsnorm else nn.GroupNorm(1, dim),
         )
 
     def forward(self, x: Tensor) -> Tensor:
