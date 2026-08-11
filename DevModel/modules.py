@@ -54,13 +54,27 @@ def exists(value: Any) -> bool:
     """Checks input `value` existence."""
     return value is not None
 
-def Downsample(chs: int, ksize: int = 4, stride: int = 2, pad: int = 1) -> Callable[[Tensor], Tensor]:
+def Downsample(
+    in_chs: int,
+    out_chs: Optional[int] = None,
+    ksize: int = 4,
+    stride: int = 2, 
+    pad: int = 1,
+) -> Callable[[Tensor], Tensor]:
     """Defines a downsampling operation through a `nn.Conv2d` obj."""
-    return nn.Conv2d(chs, chs, ksize, stride, pad)
+    out_chs_ = out_chs if exists(out_chs) else in_chs
+    return nn.Conv2d(in_chs, out_chs_, ksize, stride, pad)
 
-def Upsample(chs: int, ksize: int = 4, stride: int = 2, pad: int = 1) -> Callable[[Tensor], Tensor]:
+def Upsample(
+    in_chs: int,
+    out_chs: Optional[int] = None,
+    ksize: int = 4,
+    stride: int = 2, 
+    pad: int = 1,
+) -> Callable[[Tensor], Tensor]:
     """Defines an upsampling operation through a `nn.ConvTranspose2d` obj."""
-    return nn.ConvTranspose2d(chs, chs, ksize, stride, pad)
+    out_chs_ = out_chs if exists(out_chs) else in_chs
+    return nn.ConvTranspose2d(in_chs, out_chs_, ksize, stride, pad)
 
 def modulate(x: Tensor, scale: Tensor, shift: Tensor) -> Tensor:
     """Modulates input features with given scale and shift."""
@@ -73,7 +87,7 @@ class RMSNorm(nn.Module):
     """
     Applies Root Mean Square Layer Normalization over a mini-batch of inputs, as
     described in https://arxiv.org/pdf/1910.07467.pdf.
-    This custom version (in denoising_diffusion_pytorch/classifier_free_guidance)
+    This custom version (in `denoising_diffusion_pytorch/classifier_free_guidance`)
     is designed for spatial diffusion and performs norm across channels.
     """
     def __init__(
@@ -94,12 +108,11 @@ class RMSNorm(nn.Module):
 
 class PreNorm(nn.Module):
     """
-    Normalisation applied before a given module [1, 2],
-    performed through either RMSNorm or GroupNorm.
-    The DDPM authors interleave the Conv/Attention layers
+    Normalisation applied before a given module [1, 2], performed through either
+    RMSNorm or GroupNorm. The DDPM authors interleave the Conv/Attention layers
     of the U-Net with group normalization (Wu et al., 2018).
-    Note that there's been a debate about whether to apply
-    normalisation before or after Attention in Transformers.
+    Note that there's been a debate about whether to apply normalisation before
+    or after Attention in Transformers.
     """
     def __init__(self, dim: int, fn: Callable, rmsnorm: bool = True) -> None:
         super().__init__()
@@ -179,6 +192,7 @@ class ResnetBlock(nn.Module):
         dim_out: int,
         *,
         time_emb_dim: Optional[int] = None,
+        classes_emb_dim: Optional[int] = None,
         groups: int = 8,
         rmsnorm: bool = True,
     ) -> None:
@@ -189,14 +203,24 @@ class ResnetBlock(nn.Module):
 
         # AdaGN- or AdaLN-Zero (training stability)
         self.proj = (
-            project_adaptive_params(nn.SiLU(), nn.Linear(time_emb_dim, 2 * dim_out))
-            if exists(time_emb_dim) else None
+            project_adaptive_params(
+                nn.SiLU(),
+                nn.Linear(time_emb_dim + classes_emb_dim, 2 * dim_out),
+            )
+            if (exists(time_emb_dim) or exists(classes_emb_dim)) else None
         )
 
-    def forward(self, x: Tensor, time_emb: Optional[Tensor] = None) -> Tensor:
+    def forward(
+        self,
+        x: Tensor,
+        time_emb: Optional[Tensor] = None,
+        class_emb: Optional[Tensor] = None,
+    ) -> Tensor:
         scale_shift = None
-        if all(map(exists, (self.proj, time_emb))):
-            condition = self.proj(time_emb)
+        if exists(self.proj) and (exists(time_emb) or exists(class_emb)):
+            condition = tuple(filter(exists, (time_emb, class_emb)))
+            condition = torch.cat(condition, dim=-1)
+            condition = self.proj(condition)
             condition = condition[..., None, None]
             scale_shift = condition.chunk(2, dim=1)
 
@@ -216,6 +240,7 @@ class ConvNextBlock(nn.Module):
         dim_out: int,
         *,
         time_emb_dim: Optional[int] = None,
+        classes_emb_dim: Optional[int] = None,
         mult: int = 2,
         norm: bool = True,
         rmsnorm: bool = True,
@@ -237,15 +262,25 @@ class ConvNextBlock(nn.Module):
 
         # AdaGN- or AdaLN-Zero (training stability)
         self.proj = (
-            project_adaptive_params(nn.GELU(), nn.Linear(time_emb_dim, 2 * dim))
-            if exists(time_emb_dim) else None
+            project_adaptive_params(
+                nn.GELU(),
+                nn.Linear(time_emb_dim + classes_emb_dim, 2 * dim_out),
+            )
+            if (exists(time_emb_dim) or exists(classes_emb_dim)) else None
         )
 
-    def forward(self, x: Tensor, time_emb: Optional[Tensor] = None) -> Tensor:
+    def forward(
+        self,
+        x: Tensor,
+        time_emb: Optional[Tensor] = None,
+        class_emb: Optional[Tensor] = None,
+    ) -> Tensor:
         h = self.ds_conv(x)
         h = self.norm(h)
-        if all(map(exists, (self.proj, time_emb))):
-            condition = self.proj(time_emb)
+        if exists(self.proj) and (exists(time_emb) or exists(class_emb)):
+            condition = tuple(filter(exists, (time_emb, class_emb)))
+            condition = torch.cat(condition, dim=-1)
+            condition = self.proj(condition)
             condition = condition[..., None, None]
             scale, shift = condition.chunk(2, dim=1)
             h = modulate(h, scale, shift)
