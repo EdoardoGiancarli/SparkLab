@@ -323,9 +323,11 @@ class Attention(nn.Module):
         k, v = map(lambda t: t.view(b, self.heads, -1, h_c * w_c), kv)
 
         q = q * self.scale
-        # einsum faster and more memory efficient wrt matmul
+        # - einsum faster and more memory efficient wrt matmul
         # https://stackoverflow.com/questions/67144036/performance-difference-between-einsum-and-matmul
         # https://discuss.pytorch.org/t/gpu-speed-and-memory-difference-between-einsum-and-matmul/164493/2
+        # - could use `F.scaled_dot_product_attention(q, k, v)`, but is beta version
+        # https://docs.pytorch.org/docs/2.13/generated/torch.nn.functional.scaled_dot_product_attention.html
         sim = torch.einsum('bhdi, bhdj -> bhij', q, k)
         # safe softmax norm to prevent numerical overflow / NaN values
         sim = sim - sim.amax(dim=-1, keepdim=True).detach()
