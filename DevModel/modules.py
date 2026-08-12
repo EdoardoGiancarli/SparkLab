@@ -301,16 +301,45 @@ class Attention(nn.Module):
         heads: int = 4,
         dim_head: int = 32,
         context_dim: Optional[int] = None,
+        optim_comp: bool = True,
     ) -> None:
         super().__init__()
         self.scale = pow(dim_head, -0.5)
         self.heads = heads
         hidden_dim = dim_head * heads
         context_dim = context_dim if exists(context_dim) else dim
+        self.optim_comp = optim_comp
 
         self.to_q = nn.Conv2d(dim, hidden_dim, 1, bias=False)
         self.to_kv = nn.Conv2d(context_dim, 2 * hidden_dim, 1, bias=False)
         self.to_out = nn.Conv2d(hidden_dim, dim, 1)
+
+    def comp_attn(self, q: Tensor, k: Tensor, v: Tensor) -> Tensor:
+        """Computes attention through explicit `einsum`/`softmax` operations."""
+        q = q * self.scale
+        # einsum faster and more memory efficient wrt matmul
+        #  * https://stackoverflow.com/questions/67144036/performance-difference-between-einsum-and-matmul
+        #  * https://discuss.pytorch.org/t/gpu-speed-and-memory-difference-between-einsum-and-matmul/164493/2
+        sim = torch.einsum('bhdi, bhdj -> bhij', q, k)
+        # safe softmax norm to prevent numerical overflow / NaN values
+        sim = sim - sim.amax(dim=-1, keepdim=True).detach()
+        attn = sim.softmax(dim=-1)
+        out = torch.einsum('bhij, bhdj -> bhdi', attn, v)
+        return out
+
+    def comp_attn_w_scaledDotProductAttn(self, q: Tensor, k: Tensor, v: Tensor) -> Tensor:
+        """
+        Computes attention through `F.scaled_dot_product_attention()` for faster, optimised
+        computation and memory allocation with respect to explicit operations.
+        
+        NOTE: on PyTorch's doc [webpage](https://docs.pytorch.org/docs/2.13/generated/torch.nn.functional.scaled_dot_product_attention.html),
+        this func is currently in beta version.
+        """
+        # adapt QKV shapes and enforce contiguous memory
+        # https://discuss.pytorch.org/t/weird-behavior-of-f-scaled-dot-product-attention/203279
+        q, k, v = map(lambda m: m.transpose(-1, -2).contiguous(), (q, k, v))
+        out = F.scaled_dot_product_attention(q, k, v)
+        return out.transpose(-1, -2)
     
     def forward(self, x: Tensor, context: Optional[Tensor] = None) -> Tensor:
         if not exists(context):
@@ -322,18 +351,12 @@ class Attention(nn.Module):
         kv = self.to_kv(context).chunk(2, dim=1)
         k, v = map(lambda t: t.view(b, self.heads, -1, h_c * w_c), kv)
 
-        q = q * self.scale
-        # - einsum faster and more memory efficient wrt matmul
-        # https://stackoverflow.com/questions/67144036/performance-difference-between-einsum-and-matmul
-        # https://discuss.pytorch.org/t/gpu-speed-and-memory-difference-between-einsum-and-matmul/164493/2
-        # - could use `F.scaled_dot_product_attention(q, k, v)`, but is beta version
-        # https://docs.pytorch.org/docs/2.13/generated/torch.nn.functional.scaled_dot_product_attention.html
-        sim = torch.einsum('bhdi, bhdj -> bhij', q, k)
-        # safe softmax norm to prevent numerical overflow / NaN values
-        sim = sim - sim.amax(dim=-1, keepdim=True).detach()
-        attn = sim.softmax(dim=-1)
+        get_attn = (
+            self.comp_attn_w_scaledDotProductAttn if self.optim_comp
+            else self.comp_attn
+        )
+        out = get_attn(q, k, v)
 
-        out = torch.einsum('bhij, bhdj -> bhdi', attn, v)
         out = out.reshape(b, -1, h, w)
         return self.to_out(out)
 
@@ -426,7 +449,6 @@ class TimeEmbedding(nn.Module):
         return t
 
 
-# end
 
 
 class SelfAttention(nn.Module):
@@ -477,3 +499,6 @@ class LinearSelfAttention(nn.Module):
         out = torch.einsum('bhde, bhdn -> bhen', context, q)
         out = out.reshape(b, -1, h, w)
         return self.to_out(out)
+
+
+# end
