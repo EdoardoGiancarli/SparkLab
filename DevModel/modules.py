@@ -94,8 +94,8 @@ class RMSNorm(nn.Module):
         self,
         dim: int,
         eps: float = 1e-12,
-        dtype = None,
-        device = None,
+        dtype: Optional[torch.dtype] = None,
+        device: Optional[torch.device] = None,
     ) -> None:
         super().__init__()
         factory_kws = {'dtype': dtype, 'device': device}
