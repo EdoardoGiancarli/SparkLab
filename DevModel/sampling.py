@@ -1,5 +1,5 @@
 """
-Script for shadowgram sampling at model inference.
+Script for sources shadowgram/parameters sampling at model inference.
 
 References:
     * The Principles of Diffusion Models, Lai et al. (pre-release book, 2026): https://arxiv.org/abs/2510.21890
@@ -15,6 +15,18 @@ from torch.types import Tensor
 
 __all__ = []
 
+
+def convert_model_output(x: Tensor, to: str) -> Tensor:
+    """
+    Converts model prediction data to selected domain.
+
+    Args:
+        ...
+    
+    Returns:
+        out (Tensor): Model prediction in selected domain.
+    """
+    pass
 
 
 # end
