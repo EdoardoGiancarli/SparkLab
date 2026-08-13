@@ -39,7 +39,7 @@ __all__ = [
     'prob_mask_like',
     'decompose',
     'Unet',
-    'LOSS__TBD',
+    'JointDiffusionLoss',
 ]
 
 
@@ -420,6 +420,50 @@ class Unet(nn.Module):
         pred_params = self.params_out_proj(x)
 
         return pred_img, pred_params
+
+
+class JointDiffusionLoss(nn.Module):
+    """
+    Loss for source shadowgram and parameters joint diffusion.
+
+    The total loss is computed by adding img and params individual losses, with the params
+    loss weighted by `lambda_param` to prevent diluition from large img loss values.
+    Specifically, the img loss is computed with MSE loss, while the params loss is computed
+    with Smooth-L1 (Huber) Loss.
+
+    When called, the func returns the total loss and both img/params individual loss.
+
+    Args:
+        lambda_param (float, optional):
+            Hyper-parameter for source params loss modulation wrt img loss.
+        beta_huber (float, optional):
+            Hyper- `beta` parameter in Smooth-L1 Loss for source params loss.
+    """
+    def __init__(self, lambda_params: float = 2.0, beta: float = 1.0) -> None:
+        super().__init__()
+        self.lambda_params = lambda_params
+        self.beta = beta
+
+    def forward(
+        self,
+        pred_img: Tensor,
+        trg_img: Tensor,
+        pred_params: Tensor,
+        trg_params: Tensor,
+    ) -> tuple[Tensor, Tensor, Tensor]:
+        get_mean_persample_perbatch = lambda x: x.mean(dim=1).mean()
+
+        # compute img loss
+        loss_img = F.mse_loss(pred_img, trg_img, reduction='none')
+        loss_img = get_mean_persample_perbatch(loss_img.flatten(start_dim=1))
+        # compute params loss
+        loss_pars = F.smooth_l1_loss(
+            pred_params, trg_params, beta=self.beta, reduction='none',
+        )
+        loss_pars = get_mean_persample_perbatch(loss_pars)
+
+        total_loss = loss_img + self.lambda_params * loss_pars
+        return total_loss, loss_img, loss_pars
 
 
 # end
