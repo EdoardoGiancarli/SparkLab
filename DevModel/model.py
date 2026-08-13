@@ -93,6 +93,8 @@ class Unet(nn.Module):
             Base feature map channel dimension.
         in_channels (int, optional):
             Input image channels (e.g., noisy shadowgram). Defaults to `3`.
+        srcparams_num (int, optional):
+            Input source params number (e.g., coords + photon counts). Defaults to `3`.
         init_dim (int, optional):
             Output channel dimension for initial convolution. Defaults to `dim`.
         out_channels (int, optional):
@@ -104,7 +106,9 @@ class Unet(nn.Module):
         drop_cond_prob (float, optional):
             Condition dropout probability for CFG during training. Defaults to 0.5.
         cond_img_channels (int, optional):
-            Channel count of raw input condition tensor. Defaults to `3`.
+            Channel count of raw input condition image. Defaults to `3`.
+        cond_srcparams_num (int, optional):
+            Source params number of raw input condition array. Defaults to `3`.
         cond_dim (int, optional):
             Inner hidden dimension for cross-attention conditioning features. Defaults to `256`.
         attn_dim_head (int, optional):
@@ -137,13 +141,15 @@ class Unet(nn.Module):
         self,
         dim: int,
         in_channels: int = 3,
+        srcparams_num: int = 3,
         init_dim: Optional[int] = None,
         out_channels: Optional[int] = None,
         dim_mults: tuple[int, ...] = (1, 2, 4, 8),
         bottleneck_blocks: int = 1,
         drop_cond_prob: float = 0.5,
-        cond_img_channels: int = 3,   # NOTE: to handle; condition will be SPSF + src params (tuple[Tensor, Tensor])
-        cond_dim: int = 256,          # NOTE: to handle (out proj-channels in cross-attn)
+        cond_img_channels: int = 3,
+        cond_srcparams_num: int = 3,
+        cond_dim: int = 256,
         attn_dim_head: int = 32,
         attn_heads: int = 4,
         with_time_emb: bool = True,
@@ -155,28 +161,33 @@ class Unet(nn.Module):
         super().__init__()
         # determine dimensions
         init_dim = init_dim if exists(init_dim) else dim
-        self.init_conv = nn.Conv2d(in_channels, init_dim, 7, padding = 3)
-
         dims = [init_dim, *map(lambda m: dim * m, dim_mults)]
         in_out = list(zip(dims[:-1], dims[1:]))
 
-        # arch blocks
+        # input proj + arch blocks
+        self.init_conv = nn.Conv2d(in_channels, init_dim, 7, padding = 3)
+
         if use_convnext:
             block_klass = partial(ConvNextBlock, mult=convnext_mult, rmsnorm=rmsnorm)
         else:
             block_klass = partial(ResnetBlock, groups=resnet_block_groups, rmsnorm=rmsnorm)
 
-        # time embeddings
-        if with_time_emb:
-            time_dim = 4 * dim
-            self.time_mlp = TimeEmbedding(dim, time_dim)
-        else:
-            time_dim = None
-            self.time_mlp = lambda x: None
+        LineAttn = partial(LinearAttention, )
+
+        # time embedding + source params embedding
+        time_dim = 4 * dim
+        self.time_mlp = (
+            TimeEmbedding(dim, time_dim) if with_time_emb else None
+        )
+        self.x_params_mlp = nn.Sequential(
+            nn.Linear(srcparams_num, time_dim),
+            nn.GELU(),
+            nn.Linear(time_dim, time_dim),
+        )
 
         # classifier-free guidance
         self.drop_cond_prob = drop_cond_prob
-        self.proj_cond = nn.Conv2d(cond_img_channels, cond_dim, 1)
+        self.proj_cond = nn.Conv2d(cond_img_channels + cond_srcparams_num, cond_dim, 1)
 
         # layers
         self.downs = nn.ModuleList([])
@@ -228,33 +239,49 @@ class Unet(nn.Module):
                 )
             )
 
-        out_chs = out_channels if exists(out_channels) else in_channels
+        # output proj: img + params
         self.final_res_block = block_klass(2 * init_dim, init_dim, time_emb_dim=time_dim)
-        self.final_conv = nn.Conv2d(init_dim, out_chs, 1)
+
+        out_chs = out_channels if exists(out_channels) else in_channels
+        self.img_out_conv = nn.Conv2d(init_dim, out_chs, 1)
+
+        self.params_out_proj = nn.Sequential(
+            nn.AdaptiveAvgPool2d((1, 1)),
+            nn.Flatten(),
+            nn.Linear(init_dim, dim),
+            nn.GELU(),
+            nn.Linear(dim, srcparams_num),
+        )
 
     def forward_with_cfg(
         self,
-        x: Tensor,
+        x_img: Tensor,
+        x_params: Tensor,
         time: Tensor,
-        condition: Tensor,
+        cond_img: Tensor,
+        cond_params: Tensor,
         cfg_scale: float = 10.0,
         rmv_parallel_comp: bool = False,
         parallel_comp_scale: float = 0.0,
         cfg_var_rescale: float = 0.0,
         eps: float = 1e-6,
-    ) -> Tensor:
+    ) -> tuple[Tensor, Tensor]:
         """
         Applies model to noisy image at given timestep with dual-pass classifier-free guidance
         sampling (CFG), following input condition and with optional parallel component removal
         (APG) and CFG variance rescaling to mitigate artifacts at high guidance scales.
 
         Args:
-            x (Tensor):
+            x_img (Tensor):
                 Noisy image tensor of shape `(B, in_channels, H, W)`.
+            x_params (Tensor):
+                Noisy params tensor of shape `(B, srcparams_num)`.
             time (Tensor):
                 Diffusion timesteps tensor of shape `(B,)`.
-            condition (Tensor):
+            cond_img (Tensor):
                 Conditioning image of shape `(B, cond_img_channels, H_c, W_c)`.
+            cond_params (Tensor):
+                Conditioning params of shape `(B, cond_srcparams_num)`.
             cfg_scale (float, optional):
                 Classifier-Free Guidance scale. Defaults to `10.0`.
             rmv_parallel_comp (bool, optional):
@@ -270,63 +297,89 @@ class Unet(nn.Module):
                 Tolerance for CFG variance rescaling. Defaults to `1e-6`.
 
         Returns:
-            out (Tensor):
-                Guided model prediction tensor, with shape `(B, out_channels, H, W)`.
+            out (tuple[Tensor, Tensor]):
+                * Model predicted source shadowgram, with shape `(B, out_channels, H, W)`
+                * Model predicted source parameters, with shape `(B, srcparams_num)`
         """
         # CFG
-        logits = self.forward(x, time, condition, drop_cond_prob=0.0)
+        logits_img, logits_params = self.forward(
+            x_img, x_params, time, cond_img, cond_params, drop_cond_prob=0.0
+        )
         if cfg_scale == 1.0:
-            return logits
+            return logits_img, logits_params
 
-        null_cond = torch.zeros_like(condition)
-        uncond_logits = self.forward(x, time, null_cond, drop_cond_prob=1.0)
+        null_c_img = torch.zeros_like(cond_img)
+        null_c_params = torch.zeros_like(cond_params)
+        uncond_img, uncond_params = self.forward(
+            x_img, x_params, time, null_c_img, null_c_params, drop_cond_prob=1.0
+        )
 
-        update = logits - uncond_logits
+        update_img = logits_img - uncond_img
+        update_params = logits_params - uncond_params
 
         # modulate `condition` parallel component in `update` for high guidance
         # https://arxiv.org/abs/2410.02416
         if rmv_parallel_comp:
-            parallel, orthog = decompose(update, logits)
-            update = orthog + parallel_comp_scale * parallel
+            parallel_img, orthog_img = decompose(update_img, logits_img)
+            update_img = orthog_img + parallel_comp_scale * parallel_img
 
-        scaled_logits = uncond_logits + cfg_scale * update
+            parallel_p, orthog_p = decompose(update_params, logits_params)
+            update_params = orthog_p + parallel_comp_scale * parallel_p
 
-        # `scaled_logits` variance rescaling for high guidance
+        scaled_img = uncond_img + cfg_scale * update_img
+        scaled_params = uncond_params + cfg_scale * update_params
+
+        # `scaled_logits` variance rescaling for high guidance (NOTE: img only)
         #   * https://arxiv.org/abs/2205.11487
         #   * https://arxiv.org/pdf/2305.08891
-        if not cfg_var_rescale:
-            return scaled_logits
+        if cfg_var_rescale > 0:
+            std_fn = partial(torch.std, dim=tuple(range(1, scaled_img.ndim)), keepdim=True) # std per batch + broadcasting
+            rescaled_img = std_fn(logits_img) * scaled_img / (std_fn(scaled_img) + eps)
+            scaled_img = (
+                rescaled_img * cfg_var_rescale + scaled_img * (1 - cfg_var_rescale)
+            )
 
-        std_fn = partial(torch.std, dim=tuple(range(1, scaled_logits.ndim)), keepdim=True) # std per batch + broadcasting
-        rescaled_logits = std_fn(logits) * scaled_logits / (std_fn(scaled_logits) + eps)
-        interp_rescaled_logits = (
-            rescaled_logits * cfg_var_rescale + scaled_logits * (1 - cfg_var_rescale)
-        )
-        return interp_rescaled_logits
+        return scaled_img, scaled_params
 
     def forward(
         self,
-        x: Tensor,
+        x_img: Tensor,
+        x_params: Tensor,
         time: Tensor,
-        condition: Tensor,
+        cond_img: Tensor,
+        cond_params: Tensor,
         drop_cond_prob: Optional[float] = None,
-    ) -> Tensor:        
-        # CFG logic
-        b, device = x.shape[0], x.device
+    ) -> tuple[Tensor, Tensor]:
+        b, device = x_img.shape[0], x_img.device
         drop_cond_prob = drop_cond_prob if exists(drop_cond_prob) else self.drop_cond_prob
 
-        if exists(drop_cond_prob) and self.training:
+        # joint CFG condition dropout during training 
+        if exists(drop_cond_prob) and drop_cond_prob > 0 and self.training:
             keep_mask = prob_mask_like(1 - drop_cond_prob, (b,), device=device)
             # drop 2D img condition and replace with null cond
             img_mask = keep_mask[..., None, None, None]
-            condition = torch.where(img_mask, condition, torch.zeros_like(condition))
+            cond_img = torch.where(img_mask, cond_img, torch.zeros_like(cond_img))
+            # drop 1D arr condition and replace with null cond
+            par_mask = keep_mask[..., None]
+            cond_params = torch.where(par_mask, cond_params, torch.zeros_like(cond_params))
 
-        cond = self.proj_cond(condition)
+        # combine img + params conditions (broadcast `cond_params` to match `cond_img`) and project
+        _, _, hc, wc = cond_img.shape
+        cond_params_spatial = cond_params[..., None, None].expand(-1, -1, hc, wc)
+        cond = torch.cat([cond_img, cond_params_spatial], dim=1)
+        cond = self.proj_cond(cond)
 
         # apply arch
-        x = self.init_conv(x)
+        # - input img proj
+        x = self.init_conv(x_img)
+
+        # - combine input params and timestep embedding
+        t_emb = self.time_mlp(time) if exists(self.time_mlp) else 0
+        p_emb = self.x_params_mlp(x_params)
+        t = t_emb + p_emb
+
+        # - skip conns
         r = x.clone()
-        t = self.time_mlp(time)
         h: list[Tensor] = []
 
         # - encoder
@@ -362,7 +415,11 @@ class Unet(nn.Module):
 
         x = torch.cat((x, r), dim=1)
         x = self.final_res_block(x, t)
-        return self.final_conv(x)
+
+        pred_img = self.img_out_conv(x)
+        pred_params = self.params_out_proj(x)
+
+        return pred_img, pred_params
 
 
 # end
