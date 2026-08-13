@@ -4,7 +4,7 @@ Module for sky images diffusion to detector images.
 References:
     * Phil Wang's `denoising-diffusion-pytorch`: https://github.com/lucidrains/denoising-diffusion-pytorch/tree/main
     * Annotated Diffusion, Niels Rogge and Kashif Rasul (with refs inside, nicely detailed)
-        https://colab.research.google.com/github/huggingface/notebooks/blob/main/examples/annotated_diffusion.ipynb#scrollTo=51d9a24c
+      https://colab.research.google.com/github/huggingface/notebooks/blob/main/examples/annotated_diffusion.ipynb#scrollTo=51d9a24c
     * Chenyang Yuan's `small-diffusion`: https://github.com/yuanchenyang/smalldiffusion
 """
 

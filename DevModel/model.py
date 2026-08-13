@@ -72,8 +72,8 @@ def decompose(x: Tensor, direction: Tensor) -> tuple[Tensor, Tensor]:
 
     parallel = (fx * fdir_hat).sum(dim=-1, keepdim=True) * fdir_hat
     orthog = fx - parallel
-
     parallel, orthog = map(lambda t: t.view(xshape).to(dtype), (parallel, orthog))
+    
     return parallel, orthog
 
 
