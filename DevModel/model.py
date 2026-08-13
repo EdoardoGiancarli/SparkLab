@@ -434,9 +434,9 @@ class JointDiffusionLoss(nn.Module):
     When called, the func returns the total loss and both img/params individual loss.
 
     Args:
-        lambda_param (float, optional):
+        lambda_params (float, optional):
             Hyper-parameter for source params loss modulation wrt img loss.
-        beta_huber (float, optional):
+        beta (float, optional):
             Hyper- `beta` parameter in Smooth-L1 Loss for source params loss.
     """
     def __init__(self, lambda_params: float = 2.0, beta: float = 1.0) -> None:
