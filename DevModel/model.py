@@ -424,25 +424,45 @@ class Unet(nn.Module):
 
 class JointDiffusionLoss(nn.Module):
     """
-    Loss for source shadowgram and parameters joint diffusion.
+    Loss for source shadowgram and parameters joint diffusion. The image components loss
+    is computed using MSE loss; the params loss is computed with Smooth-L1 (Huber) Loss.
 
-    The total loss is computed by adding img and params individual losses, with the params
-    loss weighted by `lambda_param` to prevent diluition from large img loss values.
-    Specifically, the img loss is computed with MSE loss, while the params loss is computed
-    with Smooth-L1 (Huber) Loss.
+    The total loss can be computed:
+        * by adding img and params individual losses, with the params loss weighted by
+          `lambda_param` to prevent diluition from large img loss values;
+        * by using [homoscedastic uncertainty weighting](https://arxiv.org/abs/1705.07115)
+          allowing the network to dinamically learn img/params losses relative weights.
 
-    When called, the func returns the total loss and both img/params individual loss.
+    When called, the func returns the total loss and both img/params individual losses.
 
     Args:
         lambda_params (float, optional):
-            Hyper-parameter for source params loss modulation wrt img loss.
+            Hyper-parameter for source params loss modulation wrt img loss. Defaults to `2.0`.
         beta (float, optional):
-            Hyper- `beta` parameter in Smooth-L1 Loss for source params loss.
+            Hyper- `beta` parameter in Smooth-L1 Loss for source params loss. Defaults to `1.0`.
+        use_homoscedastic_weights (bool, optional):
+            Activates loss computation by homoscedastic uncertainty weighting, enabling dynamic
+            learning of relative loss weights. Defaults to `False`.
+    
+    ## Notes
+        * if `use_homoscedastic_weights` is active, the loss parameters have to be passed
+          to the chosen optimiser, otherwise will be frozen to zero and not learnt.
     """
-    def __init__(self, lambda_params: float = 2.0, beta: float = 1.0) -> None:
+    def __init__(
+        self,
+        lambda_params: float = 2.0,
+        beta: float = 1.0,
+        use_homoscedastic_weights: bool = False,
+    ) -> None:
         super().__init__()
         self.lambda_params = lambda_params
         self.beta = beta
+
+        if use_homoscedastic_weights:
+            self.log_var_img = nn.Parameter(torch.zeros())
+            self.log_var_pars = nn.Parameter(torch.zeros())
+        
+        self.use_homoscedastic_weights = use_homoscedastic_weights
 
     def forward(
         self,
@@ -462,7 +482,14 @@ class JointDiffusionLoss(nn.Module):
         )
         loss_pars = get_mean_persample_perbatch(loss_pars)
 
-        total_loss = loss_img + self.lambda_params * loss_pars
+        if self.use_homoscedastic_weights:
+            total_loss = (
+                0.5 * torch.exp(-self.log_var_img) * loss_img + 0.5 * self.log_var_img + \
+                0.5 * torch.exp(-self.log_var_pars) * loss_pars + 0.5 * self.log_var_pars
+            )
+        else:
+            total_loss = loss_img + self.lambda_params * loss_pars
+        
         return total_loss, loss_img, loss_pars
 
 
