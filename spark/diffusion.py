@@ -116,7 +116,11 @@ def extract(vals: Tensor, t: Tensor, x_dims: int) -> Tensor:
 
 class Sampler(nn.Module):
     """
-    Defines the sampling process from the model for inference.
+    Defines the sampling process at model inference, providing both
+    [DDPM](https://arxiv.org/abs/2006.11239) and [DDIM](https://arxiv.org/pdf/2010.02502) methods.
+
+    Args:
+        betas (Tensor): Noise schedule with defined `betas`.
     """
     def __init__(self, betas: Tensor) -> None:
         super().__init__()
@@ -138,8 +142,16 @@ class Sampler(nn.Module):
     @torch.no_grad()
     def p_sample(self, model: nn.Module, x: Tensor, t: Tensor, eta: float) -> Tensor:
         """
-        Samples the signal from the model at step `t - 1`, from
-        DDIM (Song et al, 2021): https://arxiv.org/pdf/2010.02502.
+        Samples the signal from the model at step `t - 1`.
+
+        Args:
+            model (nn.Module): Diffusion model architecture.
+            x (Tensor): Input noisy tensor.
+            t (Tensor): Input time-step tensor.
+            eta (float): DDPM vs DDIM scale parameter.
+        
+        Returns:
+            out (Tensor): Output noisy tensor at previous time-step.
         """
         if len(t) != x.shape[0]:
             raise ValueError(
