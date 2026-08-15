@@ -192,6 +192,7 @@ class DPMSolverPP2MSampler(Sampler):
         Returns:
             out (tuple[Tensor, Tensor]): Noisy tuple (x_img_prev, x_param_prev) at `prev_time`.
         """
+        # in the following, `s` is the current timestep (input `t`) and `t_prev` is the target timestep `t-1`
         if not exists(t_prev):
             t_prev = torch.clamp(t - 1, min=0)
 
@@ -214,20 +215,18 @@ class DPMSolverPP2MSampler(Sampler):
         # extract noise schedule vals for current time `s` and prev time `t`
         img_ndims, pars_ndims = x_img.ndim, x_pars.ndim
 
-        alpha_s_img = extract(self.sqrt_alphas_cumprod, t, img_ndims)
         sigma_s_img = extract(self.sqrt_one_minus_alphas_cumprod, t, img_ndims)
         alpha_t_img = extract(self.sqrt_alphas_cumprod, t_prev, img_ndims)
         sigma_t_img = extract(self.sqrt_one_minus_alphas_cumprod, t_prev, img_ndims)
 
-        alpha_s_pars = extract(self.sqrt_alphas_cumprod, t, pars_ndims)
         sigma_s_pars = extract(self.sqrt_one_minus_alphas_cumprod, t, pars_ndims)
         alpha_t_pars = extract(self.sqrt_alphas_cumprod, t_prev, pars_ndims)
         sigma_t_pars = extract(self.sqrt_one_minus_alphas_cumprod, t_prev, pars_ndims)
 
         # compute log-SNR step `s -> t` + broadcasting
-        broadcast_h = lambda m, ndim: m.reshape(-1, *((1,) * (ndim - 1)))
-        h = extract(self.lambda_t, t_prev, 1) - extract(self.lambda_t, t, 1)
-        h_img, h_pars = map(broadcast_h, (h, h), (img_ndims, pars_ndims))
+        broadcast_step = lambda m, ndim: m.reshape(-1, *((1,) * (ndim - 1)))
+        step = extract(self.lambda_t, t_prev, 1) - extract(self.lambda_t, t, 1)
+        step_img, step_pars = map(broadcast_step, (step, step), (img_ndims, pars_ndims))
 
         # - multi-step DPM-Solver++ update step
         if not exists(self.old_x):
@@ -236,55 +235,75 @@ class DPMSolverPP2MSampler(Sampler):
         else:
             # subsequent steps: 2nd-order multistep Adams-Bashfort step
             old_x0_img, old_x0_pars = self.old_x
-            ...
+            old_step_img, old_step_pars = map(broadcast_step, self.old_step, (img_ndims, pars_ndims))
 
-        return ...
+            r_img = old_step_img / step_img
+            r_pars = old_step_pars / step_pars
 
+            # D = D0 + (0.5 * r) * (D0 - D0_prev)
+            d_img = x0_img + (0.5 * r_img) * (x0_img - old_x0_img)
+            d_pars = x0_pars + (0.5 * r_pars) * (x0_pars - old_x0_pars)
 
-@torch.no_grad()
-def _sample(
-    sample_fn: Callable[[Tensor, Tensor], Tensor], 
-    x_start: Tensor,
-    timesteps: list[int],
-    batch_size: int,
-    full_process: bool,
-) -> Tensor | list[Tensor]:
-    """Sampling algorithm for signal denoising through time steps."""
-    img = x_start
-    diff_process: list[Tensor] = []
-    for idx in tqdm(timesteps, desc=f'Sampling', total=len(timesteps)):
-        t = torch.full((batch_size,), idx, device=x_start.device, dtype=torch.long)
-        img = sample_fn(img, t)
-        if full_process:
-            diff_process.append(img.cpu())
-    
-    out = img if not full_process else diff_process
-    return out
+        # advance sample `x_s -> x_t`
+        x_prev_img = (sigma_t_img / sigma_s_img) * x_img + alpha_t_img * (1.0 - torch.exp(-step_img)) * d_img
+        x_prev_pars = (sigma_t_pars / sigma_s_pars) * x_pars + alpha_t_pars * (1.0 - torch.exp(-step_pars)) * d_pars
+
+        # 6. Store current predictions in history buffer
+        self.old_denoised = (x0_img, x0_pars)
+        self.old_step = step
+
+        return x_prev_img, x_prev_pars
 
 
 @torch.no_grad()
 def sample(
     model: nn.Module,
-    sampler: Sampler,
-    timesteps: int | list[int],
-    x_shape: torch.Size,
-    eta: float = 0.0,
-    x_t: Tensor | None = None,
+    sampler: DPMSolverPP2MSampler,
+    x: tuple[Tensor, Tensor],
+    condition: tuple[Tensor, Tensor],
+    cfg_scale: float = 10.0,
+    num_inference_steps: int = 20,
     full_process: bool = False,
-) -> Tensor | list[Tensor]:
-    """Samples images from the model through denoising diffusion process."""
+    **kwargs,
+) -> tuple[Tensor, Tensor] | list[tuple[Tensor, Tensor]]:
+    """
+    Samples source shadowgrams and relative parameters from the model,
+    with conditioning from input SPSF and initial parameters estimate.
+    """
     device = next(model.parameters()).device
-    batch_size = x_shape[0]
-    x_start = (
-        x_t if x_t is not None
-        else torch.randn(x_shape, device=device)
-    )
-    timesteps_ = (
-        list(range(0, timesteps))[::-1] if isinstance(timesteps, int) else timesteps[::-1]
-    )
-    sampler = sampler.to(device)
-    sample_fn = lambda x, t: sampler.p_sample(model, x, t, eta)
-    return _sample(sample_fn, x_start, timesteps_, batch_size, full_process)
+
+    diff_process: list[tuple[Tensor, Tensor]] = []
+    to_device: Callable = lambda m: m.to(device)
+    to_cpu: Callable = lambda m: m.cpu()
+    factory_kws = {'dtype': torch.long, 'device': device}
+
+    pred = tuple(map(to_device, x))
+    cond = tuple(map(to_device, condition))
+    sampler.to(device)
+
+    nsteps = len(sampler.sqrt_alphas_cumprod)
+    timesteps = torch.linspace(nsteps - 1, 0, num_inference_steps + 1, **factory_kws)
+
+    batch = cond[0].shape[0]
+    sampler.reset_state()
+    for idx in tqdm(range(num_inference_steps), desc=f'Sampling'):
+        t = torch.full((batch,), timesteps[idx], **factory_kws)
+        t_prev = torch.full((batch,), timesteps[idx + 1], **factory_kws)
+
+        pred = sampler.p_sample(
+            model=model,
+            x=pred,
+            t=t,
+            condition=cond,
+            t_prev=t_prev,
+            cfg_scale=cfg_scale,
+            **kwargs,
+        )
+        if full_process:
+            diff_process.append(tuple(map(to_cpu, pred)))
+    
+    out = tuple(map(to_cpu, pred)) if not full_process else diff_process
+    return out
 
 
 # end
