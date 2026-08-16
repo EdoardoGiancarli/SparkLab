@@ -3,7 +3,14 @@ Script for shadowgram sampling at model inference.
 """
 
 from itertools import islice
-from typing import Any, Callable, NamedTuple, Optional
+from pathlib import Path
+from typing import (
+    Any,
+    Callable,
+    NamedTuple,
+    Optional,
+    OrderedDict,
+)
 import warnings
 
 from tqdm import tqdm
@@ -15,6 +22,8 @@ from torch.types import Tensor
 from torch.utils.data import DataLoader
 
 from wandb import Run
+
+import spark as pk
 
 from .modules import exists
 from .sampling import Sampler
@@ -106,6 +115,66 @@ def log_with_wandb(logger: Run, data: dict[str, Any], epoch: int) -> None:
         warnings.warn(f'wandb.log failed @ E = {epoch}: {e}')
 
 
+class CheckPointManager:
+    """
+    Object for model checkpoints managing.
+    `CheckPointManager` accounts for:
+        * saving model checkpoints (condition to be defined outside in the training loop);
+        * save best model via validation/training loss comparisons to prevent overfitting;
+        * interrupting training when possible overfitting is reached.
+    """
+    def __init__(self, savepath: str | Path, checkpointID: int = 0) -> None:
+        self.checkpointID = checkpointID
+        self.savepath = savepath
+
+    def reset_checkpointID(self, value: int = 0) -> None:
+        self.checkpointID = value
+
+    def save_checkpoint(
+        self,
+        state_dict: OrderedDict,
+        name: Optional[str] = None,
+        info: Optional[dict[str, Any]] = None,
+        overwrite: bool = False,
+        **kwargs,
+    ) -> None:
+        name_ = name if exists(name) else f'model_checkpnt_{self.checkpointID}'
+        pk.save_model(
+            state_dict=state_dict,
+            save_to=f'{self.savepath}/{name_}',
+            info=info,
+            overwrite=overwrite,
+            **kwargs,
+        )
+        self.checkpointID += 1
+        return
+
+    def save_best_model(
+        self,
+        model: nn.Module,
+        train_loss: Tensor,
+        valid_loss: Tensor,
+        patience: Optional[int] = None,
+        save_model_kws: Optional[dict[str, Any]] = None,
+        compare_fn: Optional[Callable[[Tensor, Tensor], bool]] = None,
+        **kwargs,
+    ) -> None:
+        # compare train/valid losses with given patience or custom fn
+        if exists(compare_fn):
+            save_ckpnt: bool = compare_fn(train_loss, valid_loss)
+        else:
+            save_ckpnt: bool = ...
+
+        # save model
+        if save_ckpnt:
+            kws_ = save_model_kws.update(kwargs) if exists(save_model_kws) else kwargs
+            self.save_checkpoint(state_dict=model.state_dict(), **kws_)
+        return
+
+    def interrupt_training(self, *args, **kwargs) -> ...:
+        pass
+
+
 def train_model(
     params: TrainParams,
     epochs: int,
@@ -113,6 +182,7 @@ def train_model(
     train_dl: DataLoader,
     valid_dl: DataLoader,
     wandb_logger: Run,
+    ckpnt_manager: Optional[CheckPointManager] = None,
     **model_kws,
 ) -> TrainResults:
     """
@@ -221,10 +291,6 @@ def train_model(
         # loss logging and lr update
         avg_v_loss_val = running_valid_loss / max(running_valid_batches, 1)
         avg_valid_loss.append(avg_v_loss_val)
-        try:
-            scheduler.step(avg_v_loss_val)
-        except AttributeError:
-            scheduler.step()
 
         
         # -------------------------   WANDB LOGGING   ------------------------
@@ -238,6 +304,16 @@ def train_model(
                 },
                 epoch=epoch,
             )
+
+        # model checkpoint and lr update
+        if exists(ckpnt_manager):
+            # simple check
+            pass
+
+        try:
+            scheduler.step(avg_v_loss_val)
+        except AttributeError:
+            scheduler.step()
     
     return TrainResults(avg_train_loss, avg_valid_loss)
 
