@@ -260,6 +260,7 @@ def train_model(
     scaler = GradScaler(device_type)
 
     # config procedure/loss container
+    to_device: Callable[[Tensor], Tensor] = lambda m: m.to(device)
     stop_training: bool = False
     stop_msg: Optional[str] = None
 
@@ -286,8 +287,8 @@ def train_model(
         for batch, (x, condition) in enumerate(islice(train_dl, tdl_len), start=1):
             loop.set_postfix({'batch': f'{batch}/{tdl_len}'})
 
-            x_img, x_pars = map(lambda m: m.to(device), x)
-            c_img, c_pars = map(lambda m: m.to(device), condition)
+            x_img, x_pars = map(to_device, x)
+            c_img, c_pars = map(to_device, condition)
             # # NOTE: if DataLoaders yield 5D tensors for imgs/pars
             # x_img, x_pars = map(lambda m: m.squeeze(0).to(device), x.chunk(2, dim=0))
             # c_img, c_pars = map(lambda m: m.squeeze(0).to(device), condition.chunk(2, dim=0))
@@ -310,11 +311,11 @@ def train_model(
             scaler.step(optimiser)
             scaler.update()
 
-            if not tot_loss_val.isnan():
+            if tot_loss_val.isnan():
+                warnings.warn(f'Train loss NaN @ E: {epoch}, B: {batch}')
+            else:
                 running_batches += 1
                 running_train_loss += tot_loss_val.item()
-            else:
-                warnings.warn(f'Train loss NaN @ E: {epoch}, B: {batch}')
 
         avg_train_loss.append(running_train_loss / max(running_batches, 1))
 
@@ -329,8 +330,8 @@ def train_model(
             for batch, (x, condition) in enumerate(islice(valid_dl, vdl_len), start=1):
                 loop.set_postfix({'batch': f'{batch}/{vdl_len}'})
     
-                x_img, x_pars = map(lambda m: m.to(device), x)
-                c_img, c_pars = map(lambda m: m.to(device), condition)
+                x_img, x_pars = map(to_device, x)
+                c_img, c_pars = map(to_device, condition)
     
                 # sample `t` uniformally for every entry in the batch and add noise to x
                 t = torch.randint(0, ntsteps, (x_img.shape[0],), device=device).long()
@@ -345,15 +346,13 @@ def train_model(
                     pred_img, pred_pars = model(x_img, x_pars, t, c_img, c_pars, **model_kws)
                     tot_loss_val, *_ = loss_fn(pred_img, img_noise, pred_pars, pars_noise)
     
-                if not tot_loss_val.isnan():
+                if tot_loss_val.isnan():
+                    warnings.warn(f'Valid loss NaN @ E: {epoch}, B: {batch}')
+                else:
                     running_valid_batches += 1
                     running_valid_loss += tot_loss_val.item()
-                else:
-                    warnings.warn(f'Train loss NaN @ E: {epoch}, B: {batch}')
 
-        # loss logging and lr update
-        avg_v_loss_val = running_valid_loss / max(running_valid_batches, 1)
-        avg_valid_loss.append(avg_v_loss_val)
+        avg_valid_loss.append(running_valid_loss / max(running_valid_batches, 1))
 
         
         # -------------------------   WANDB LOGGING   ------------------------
@@ -413,66 +412,11 @@ def train_model(
                 )
 
         try:
-            scheduler.step(avg_v_loss_val)
+            scheduler.step(avg_valid_loss[-1])
         except TypeError:
             scheduler.step()
     
     return TrainResults(*tuple(map(torch.tensor, (avg_train_loss, avg_valid_loss))))
-
-
-
-
-def execute_step(
-    model: nn.Module,
-    optimiser: Callable,
-    scaler: Callable,
-    loss_fn: Callable,
-    sampler: Sampler,
-    x: tuple[Tensor, Tensor],
-    cond: tuple[Tensor, Tensor],
-    ntsteps: int,
-    device: str | torch.device,
-    device_type: str,
-    **model_kws,
-) -> Tensor | tuple[Tensor, ...]:
-    """Executes training/validation steps, returning output loss results."""
-    # NOTE: think about integrating this code for the train/valid loops over respective datasets
-    #       PRO:
-    #           * simpler main training func structure (?)
-    #           * same operations for train and valid steps
-    #           * extracts all losses, to be handled in main training func (e.g., logging/analyses)
-    #           * independent from Callables implementation (?) (NOTE: model/loss_fn must accept fixed args/kwargs)
-    #       CONS:
-    #           * assumes same operations kind for train and valid computations
-    #           * may reduce readability of the main training func (?)
-    #           * lots of args/kwargs (?)
-
-    x_img, x_pars = map(lambda m: m.to(device), x)
-    c_img, c_pars = map(lambda m: m.to(device), cond)
-    # # NOTE: if DataLoaders yield 5D tensors for imgs/pars
-    # x_img, x_pars = map(lambda m: m.squeeze(0).to(device), x.chunk(2, dim=0))
-    # c_img, c_pars = map(lambda m: m.squeeze(0).to(device), condition.chunk(2, dim=0))
-
-    # sample `t` uniformally for every entry in the batch and add noise to x
-    t = torch.randint(0, ntsteps, (x_img.shape[0],), device=device).long()
-    img_noise, pars_noise = torch.randn_like(x_img), torch.randn_like(x_pars)
-    
-    x_img, x_pars = map(
-        lambda data, noise: sampler.q_sample(data, t, noise),
-        (x_img, x_pars), (img_noise, pars_noise),
-    )
-
-    if model.training: optimiser.zero_grad()
-    with autocast(device_type=device_type):
-        pred_img, pred_pars = model(x_img, x_pars, t, c_img, c_pars, **model_kws)
-        loss_vals = loss_fn(pred_img, img_noise, pred_pars, pars_noise)
-
-    if model.training: 
-        scaler.scale(loss_vals[0]).backward()
-        scaler.step(optimiser)
-        scaler.update()
-
-    return loss_vals
 
 
 # end
