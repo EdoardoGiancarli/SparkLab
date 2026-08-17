@@ -1,5 +1,5 @@
 """
-Script for shadowgram sampling at model inference.
+Script for U-Net and sources shadowgrams/parameters joint diffusion.
 """
 
 from itertools import islice
@@ -32,36 +32,6 @@ from .sampling import Sampler
 __all__ = []
 
 
-def normalise_sgs() -> Tensor:
-    """
-    Normalises source shadowgrams in dataset.
-
-    Args:
-        ...
-    
-    Returns:
-        out (Tensor): Normalised source shadowgrams images.
-    """
-    pass
-
-
-def normalise_params() -> Tensor:
-    """
-    Normalises source params in dataset.
-    The source coordinates are normalised in [-1, 1] mirroring the LEM-X cameras
-    FoV, expressed in the instruments local-frame system.
-    The collected photons are normalised by applying first a log-transform, and
-    then a z-score norm to prevent large values dominance.
-
-    Args:
-        ...
-    
-    Returns:
-        out (Tensor): Normalised source parameter arrays.
-    """
-    pass
-
-
 class TrainResults(NamedTuple):
     """
     Model trainer results. Contains the average
@@ -79,40 +49,6 @@ class TrainParams(NamedTuple):
     optimiser: Callable
     lr_scheduler: Callable
     device: Optional[str | torch.device]
-
-
-def config_training(
-    model: nn.Module,
-    sampler: Sampler,
-    loss: Callable,
-    optimiser: Callable,
-    lr_scheduler: Callable,
-    device: Optional[str | torch.device] = None,
-    verbose: bool = True,
-) -> TrainParams:
-    """
-    Creates a container with training operations.
-    Callables can be also passed as partially initialised.
-    """
-    if not exists(device):
-        device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    if verbose:
-        n_params = sum(p.numel() for p in model.parameters())
-        print(
-            f'Training INFO:\n'
-            f'  - operating on device: {device}\n'
-            f'  - model parameters: {n_params:,}\n'
-        )
-    tp = TrainParams(model, sampler, loss, optimiser, lr_scheduler, device)
-    return tp
-
-
-def log_with_wandb(logger: Run, data: dict[str, Any], epoch: int) -> None:
-    """Logs input data using `wandb`."""
-    try:
-        logger.log(data, step=epoch)
-    except Exception as e:
-        warnings.warn(f'wandb.log failed @ E = {epoch}: {e}')
 
 
 class CheckPointManager:
@@ -173,6 +109,45 @@ class CheckPointManager:
 
     def interrupt_training(self, *args, **kwargs) -> ...:
         pass
+
+
+def execute_every(epoch: int, step: int) -> bool:
+    """Returns boole flag for `epoch` reaching given `step`."""
+    return epoch % step == 0
+
+
+def log_with_wandb(logger: Run, data: dict[str, Any], epoch: int) -> None:
+    """Logs input data using `wandb`."""
+    try:
+        logger.log(data, step=epoch)
+    except Exception as e:
+        warnings.warn(f'wandb.log failed @ E = {epoch}: {e}')
+
+
+def config_training(
+    model: nn.Module,
+    sampler: Sampler,
+    loss: Callable,
+    optimiser: Callable,
+    lr_scheduler: Callable,
+    device: Optional[str | torch.device] = None,
+    verbose: bool = True,
+) -> TrainParams:
+    """
+    Creates a container with training operations.
+    Callables can be also passed as partially initialised.
+    """
+    if not exists(device):
+        device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    if verbose:
+        n_params = sum(p.numel() for p in model.parameters())
+        print(
+            f'Training INFO:\n'
+            f'  - operating on device: {device}\n'
+            f'  - model parameters: {n_params:,}\n'
+        )
+    tp = TrainParams(model, sampler, loss, optimiser, lr_scheduler, device)
+    return tp
 
 
 def train_model(
