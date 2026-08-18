@@ -249,7 +249,7 @@ def train_model(
     **model_kws,
 ) -> TrainResults:
     """
-    Basic train routine.
+    Basic train routine, performed in the velocity space `v`.
     """
     # setup model/optimiser/scaler for memory saving
     device = params.device
@@ -296,25 +296,31 @@ def train_model(
         for batch, (x, condition) in enumerate(islice(train_dl, tdl_len), start=1):
             loop.set_postfix({'batch': f'{batch}/{tdl_len}'})
 
-            x_img, x_pars = map(to_device, x)
+            x_0_img, x_0_pars = map(to_device, x)
             c_img, c_pars = map(to_device, condition)
             # # NOTE: if DataLoaders yield 5D tensors for imgs/pars (T, B, C, H, W)
             # x_img, x_pars = map(lambda m: m.squeeze(0).to(device), x.chunk(2, dim=0))
             # c_img, c_pars = map(lambda m: m.squeeze(0).to(device), condition.chunk(2, dim=0))
 
-            # sample `t` uniformally for every entry in the batch and add noise to x
-            t = torch.randint(0, ntsteps, (x_img.shape[0],), device=device).long()
-            img_noise, pars_noise = torch.randn_like(x_img), torch.randn_like(x_pars)
-            
-            x_img, x_pars = map(
+            # sample `t` uniformally for every entry in the batch
+            t = torch.randint(0, ntsteps, (x_0_img.shape[0],), device=device).long()
+
+            # forward diffusion and target velocity
+            img_noise, pars_noise = torch.randn_like(x_0_img), torch.randn_like(x_0_pars)
+
+            x_t_img, x_t_pars = map(
                 lambda data, noise: sampler.q_sample(data, t, noise),
-                (x_img, x_pars), (img_noise, pars_noise),
+                (x_0_img, x_0_pars), (img_noise, pars_noise),
+            )
+            v_img_trg, v_pars_trg = map(
+                lambda data, noise: sampler.convert_to_v(data, t, noise),
+                (x_0_img, x_0_pars), (img_noise, pars_noise),
             )
 
             optimiser.zero_grad()
             with autocast(device_type=device_type):
-                pred_img, pred_pars = model(x_img, x_pars, t, c_img, c_pars, **model_kws)
-                tot_loss_val, *_ = loss_fn(pred_img, img_noise, pred_pars, pars_noise)
+                v_img_pred, v_pars_pred = model(x_t_img, x_t_pars, t, c_img, c_pars, **model_kws)
+                tot_loss_val, *_ = loss_fn(v_img_pred, v_img_trg, v_pars_pred, v_pars_trg)
 
             scaler.scale(tot_loss_val).backward()
             scaler.step(optimiser)
@@ -338,22 +344,28 @@ def train_model(
         with torch.no_grad():
             for batch, (x, condition) in enumerate(islice(valid_dl, vdl_len), start=1):
                 loop.set_postfix({'batch': f'{batch}/{vdl_len}'})
-    
-                x_img, x_pars = map(to_device, x)
+
+                x_0_img, x_0_pars = map(to_device, x)
                 c_img, c_pars = map(to_device, condition)
     
-                # sample `t` uniformally for every entry in the batch and add noise to x
-                t = torch.randint(0, ntsteps, (x_img.shape[0],), device=device).long()
-                img_noise, pars_noise = torch.randn_like(x_img), torch.randn_like(x_pars)
-
-                x_img, x_pars = map(
+                # sample `t` uniformally for every entry in the batch
+                t = torch.randint(0, ntsteps, (x_0_img.shape[0],), device=device).long()
+    
+                # forward diffusion and target velocity
+                img_noise, pars_noise = torch.randn_like(x_0_img), torch.randn_like(x_0_pars)
+                
+                x_t_img, x_t_pars = map(
                     lambda data, noise: sampler.q_sample(data, t, noise),
-                    (x_img, x_pars), (img_noise, pars_noise),
+                    (x_0_img, x_0_pars), (img_noise, pars_noise),
+                )
+                v_img_trg, v_pars_trg = map(
+                    lambda data, noise: sampler.convert_to_v(data, t, noise),
+                    (x_0_img, x_0_pars), (img_noise, pars_noise),
                 )
     
                 with autocast(device_type=device_type):
-                    pred_img, pred_pars = model(x_img, x_pars, t, c_img, c_pars, **model_kws)
-                    tot_loss_val, *_ = loss_fn(pred_img, img_noise, pred_pars, pars_noise)
+                    v_img_pred, v_pars_pred = model(x_t_img, x_t_pars, t, c_img, c_pars, **model_kws)
+                    tot_loss_val, *_ = loss_fn(v_img_pred, v_img_trg, v_pars_pred, v_pars_trg)
     
                 if tot_loss_val.isnan():
                     warnings.warn(f'Valid loss NaN @ E: {epoch}, B: {batch}')

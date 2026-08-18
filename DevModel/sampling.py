@@ -114,13 +114,25 @@ class Sampler(ABC, nn.Module):
 
     def q_sample(self, x: Tensor, t: Tensor, noise: Optional[Tensor] = None) -> Tensor:
         """Defines forward diffusion for input tensor by adding noise."""
-        if noise is None:
+        if not exists(noise):
             noise = torch.randn_like(x)
             
-        sqrt_alphas_cumprod_t = extract(self.sqrt_alphas_cumprod, t, len(x.shape))
-        sqrt_one_minus_alphas_cumprod_t = extract(self.sqrt_one_minus_alphas_cumprod, t, len(x.shape))
+        x_dims = x.ndim
+        alpha_t = extract(self.sqrt_alphas_cumprod, t, x_dims)
+        sigma_t = extract(self.sqrt_one_minus_alphas_cumprod, t, x_dims)
         
-        return sqrt_alphas_cumprod_t * x + sqrt_one_minus_alphas_cumprod_t * noise
+        return alpha_t * x + sigma_t * noise
+
+    def convert_to_v(self, x: Tensor, t: Tensor, noise: Optional[Tensor] = None) -> Tensor:
+        """Converts data from signal-space `x_0` to velocity-space."""
+        if not exists(noise):
+            noise = torch.randn_like(x)
+            
+        x_dims = x.ndim
+        alpha_t = extract(self.sqrt_alphas_cumprod, t, x_dims)
+        sigma_t = extract(self.sqrt_one_minus_alphas_cumprod, t, x_dims)
+
+        return alpha_t * noise - sigma_t * x
 
     @abstractmethod
     @torch.no_grad()
@@ -137,9 +149,9 @@ class DPMSolverPP2MSampler(Sampler):
     Args:
         betas (Tensor): Noise schedule with defined `betas`.
         pred_type (str): Model output prediction type ('eps' for noise domain,
-                         'x0' for signal, 'v' for velocity). Default to `'eps'`.
+                         'x0' for signal, 'v' for velocity). Default to `'v'`.
     """
-    def __init__(self, betas: Tensor, pred_type: Literal['eps', 'x0', 'v'] = 'eps') -> None:
+    def __init__(self, betas: Tensor, pred_type: Literal['eps', 'x0', 'v'] = 'v') -> None:
         super().__init__(betas)
 
         if pred_type not in ['eps', 'x0', 'v']:
@@ -163,7 +175,7 @@ class DPMSolverPP2MSampler(Sampler):
         if self.pred_type == 'x0':
             return model_out
 
-        x_dims = len(x_t.shape)
+        x_dims = x_t.ndim
         alpha_t = extract(self.sqrt_alphas_cumprod, t, x_dims)
         sigma_t = extract(self.sqrt_one_minus_alphas_cumprod, t, x_dims)
 
