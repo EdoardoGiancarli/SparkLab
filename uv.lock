@@ -21,6 +21,37 @@ wheels = [
 ]
 
 [[package]]
+name = "astropy"
+version = "7.0.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "astropy-iers-data" },
+    { name = "numpy" },
+    { name = "packaging" },
+    { name = "pyerfa" },
+    { name = "pyyaml" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/6a/12/d6ad68d5acd751e3827d54a64333e0dd789bcc747fe9528f5758b35421f8/astropy-7.0.0.tar.gz", hash = "sha256:e92d7c9fee86eb3df8714e5dd41bbf9f163d343e1a183d95bf6bd09e4313c940", size = 7130087, upload-time = "2024-11-22T08:58:15.172Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/47/1d/6c02cc24248897f07cc417c8583f0c1ae4a80d50f6b45b2e889f331b511c/astropy-7.0.0-cp313-cp313-macosx_10_13_x86_64.whl", hash = "sha256:0e5adeb8f955242da5cb4fe58df2f1483d81c10b2b73f089c91fc87dd3b63e1e", size = 6660947, upload-time = "2024-11-22T08:57:59.302Z" },
+    { url = "https://files.pythonhosted.org/packages/85/66/bbb28b73eaa4469be1be88e302f133f3ff2b3b295f80ca4bc6e10269973e/astropy-7.0.0-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:31614b6451436163eed3744b90edd89dd357bf223c482fa944e627be86a47349", size = 6537491, upload-time = "2024-11-22T08:58:00.873Z" },
+    { url = "https://files.pythonhosted.org/packages/1e/5f/9cfd728e903972f0bcf6f0048f813d225e67447cab01889571fd25a060a0/astropy-7.0.0-cp313-cp313-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:b7b28a144165e4e7f4f0467fb6d8ed079f320fc99969a907614d98b18c7cea99", size = 10547602, upload-time = "2024-11-22T08:58:02.882Z" },
+    { url = "https://files.pythonhosted.org/packages/bd/0c/11e0cd93a8235627e154aeda1cf083e8bebd0ff72a27fea3390d2b2df1c2/astropy-7.0.0-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:db36b632989060ce4f7c3058ffc860af38df5c8ee7ee7ef2daad1f441c416c12", size = 10635466, upload-time = "2024-11-22T08:58:05.108Z" },
+    { url = "https://files.pythonhosted.org/packages/de/25/19f515e7f7ad4800b1bc4d642f40f7872b39476c1d8e9ab690b7e702bf30/astropy-7.0.0-cp313-cp313-musllinux_1_2_x86_64.whl", hash = "sha256:c6a14810e596b9d437fbfe40733d61afccc9d4b7b9f7504228ba492f545d197f", size = 10652309, upload-time = "2024-11-22T08:58:07.659Z" },
+    { url = "https://files.pythonhosted.org/packages/17/02/be4a0d3f6add53c3ebfbf7d4f2704030ea04f06963abb0a9286528a8ab27/astropy-7.0.0-cp313-cp313-win32.whl", hash = "sha256:446931f9c260294ddc8646684ab2413e1a5eb14dcd4ff1e8a0532fa143b0844e", size = 6387551, upload-time = "2024-11-22T08:58:10.697Z" },
+    { url = "https://files.pythonhosted.org/packages/fa/3a/cf06361685f72b50b3fb69247b95b66a6d2edb1b1947e6403c168f01eecc/astropy-7.0.0-cp313-cp313-win_amd64.whl", hash = "sha256:7ecaaeeb017cceb02512d5505c43e162b3e26d951cece2b021e786f4c0af17a7", size = 6516991, upload-time = "2024-11-22T08:58:12.333Z" },
+]
+
+[[package]]
+name = "astropy-iers-data"
+version = "0.2026.8.18.14.22.31"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/84/b7/5a3d8faabcaa35918a3b072575806b0cc8bddc90b76b51400333085edc8b/astropy_iers_data-0.2026.8.18.14.22.31.tar.gz", hash = "sha256:a2f2723f6f3b1c3b0fceafc7a98875ec0916d21c7f509caa40d4f843ff71cf35", size = 1944995, upload-time = "2026-08-18T14:23:11.999Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/97/8d/7e213ee9c932e52e5dc46a44a7527add932e0189e306607be8dc49a50e3d/astropy_iers_data-0.2026.8.18.14.22.31-py3-none-any.whl", hash = "sha256:95b9da762fe06940f3ac3187c3e4f24e1ed10e838379f0adcb9d33f2dacd6853", size = 2000506, upload-time = "2026-08-18T14:23:10.552Z" },
+]
+
+[[package]]
 name = "asttokens"
 version = "3.0.2"
 source = { registry = "https://pypi.org/simple" }
@@ -1203,6 +1234,24 @@ wheels = [
 ]
 
 [[package]]
+name = "pyerfa"
+version = "2.0.1.5"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "numpy" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/71/39/63cc8291b0cf324ae710df41527faf7d331bce573899199d926b3e492260/pyerfa-2.0.1.5.tar.gz", hash = "sha256:17d6b24fe4846c65d5e7d8c362dcb08199dc63b30a236aedd73875cc83e1f6c0", size = 818430, upload-time = "2024-11-11T15:22:30.852Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/7d/d9/3448a57cb5bd19950de6d6ab08bd8fbb3df60baa71726de91d73d76c481b/pyerfa-2.0.1.5-cp39-abi3-macosx_10_9_x86_64.whl", hash = "sha256:b282d7c60c4c47cf629c484c17ac504fcb04abd7b3f4dfcf53ee042afc3a5944", size = 341818, upload-time = "2024-11-11T15:22:16.467Z" },
+    { url = "https://files.pythonhosted.org/packages/11/4a/31a363370478b63c6289a34743f2ba2d3ae1bd8223e004d18ab28fb92385/pyerfa-2.0.1.5-cp39-abi3-macosx_11_0_arm64.whl", hash = "sha256:be1aeb70390dd03a34faf96749d5cabc58437410b4aab7213c512323932427df", size = 329370, upload-time = "2024-11-11T15:22:17.829Z" },
+    { url = "https://files.pythonhosted.org/packages/cb/96/b6210fc624123c8ae13e1eecb68fb75e3f3adff216d95eee1c7b05843e3e/pyerfa-2.0.1.5-cp39-abi3-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:b0603e8e1b839327d586c8a627cdc634b795e18b007d84f0cda5500a0908254e", size = 692794, upload-time = "2024-11-11T15:22:19.429Z" },
+    { url = "https://files.pythonhosted.org/packages/e5/e0/050018d855d26d3c0b4a7d1b2ed692be758ce276d8289e2a2b44ba1014a5/pyerfa-2.0.1.5-cp39-abi3-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:0e43c7194e3242083f2350b46c09fd4bf8ba1bcc0ebd1460b98fc47fe2389906", size = 738711, upload-time = "2024-11-11T15:22:20.661Z" },
+    { url = "https://files.pythonhosted.org/packages/b9/f5/ff91ee77308793ae32fa1e1de95e9edd4551456dd888b4e87c5938657ca5/pyerfa-2.0.1.5-cp39-abi3-musllinux_1_2_x86_64.whl", hash = "sha256:07b80cd70701f5d066b1ac8cce406682cfcd667a1186ec7d7ade597239a6021d", size = 722966, upload-time = "2024-11-11T15:22:21.905Z" },
+    { url = "https://files.pythonhosted.org/packages/2c/56/b22b35c8551d2228ff8d445e63787112927ca13f6dc9e2c04f69d742c95b/pyerfa-2.0.1.5-cp39-abi3-win32.whl", hash = "sha256:d30b9b0df588ed5467e529d851ea324a67239096dd44703125072fd11b351ea2", size = 339955, upload-time = "2024-11-11T15:22:23.087Z" },
+    { url = "https://files.pythonhosted.org/packages/b4/11/97233cf23ad5411ac6f13b1d6ee3888f90ace4f974d9bf9db887aa428912/pyerfa-2.0.1.5-cp39-abi3-win_amd64.whl", hash = "sha256:66292d437dcf75925b694977aa06eb697126e7b86553e620371ed3e48b5e0ad0", size = 349410, upload-time = "2024-11-11T15:22:24.817Z" },
+]
+
+[[package]]
 name = "pygments"
 version = "2.20.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1476,6 +1525,7 @@ name = "spark"
 version = "0.2.0"
 source = { editable = "." }
 dependencies = [
+    { name = "astropy" },
     { name = "ipykernel" },
     { name = "matplotlib" },
     { name = "numpy" },
@@ -1489,6 +1539,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "astropy", specifier = "==7.0.0" },
     { name = "ipykernel", specifier = "==7.3.0" },
     { name = "matplotlib", specifier = "==3.10.8" },
     { name = "numpy", specifier = "==2.4.3" },
