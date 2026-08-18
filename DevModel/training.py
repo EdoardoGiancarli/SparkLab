@@ -298,7 +298,7 @@ def train_model(
 
             x_img, x_pars = map(to_device, x)
             c_img, c_pars = map(to_device, condition)
-            # # NOTE: if DataLoaders yield 5D tensors for imgs/pars
+            # # NOTE: if DataLoaders yield 5D tensors for imgs/pars (T, B, C, H, W)
             # x_img, x_pars = map(lambda m: m.squeeze(0).to(device), x.chunk(2, dim=0))
             # c_img, c_pars = map(lambda m: m.squeeze(0).to(device), condition.chunk(2, dim=0))
 
@@ -364,7 +364,7 @@ def train_model(
         avg_valid_loss.append(running_valid_loss / max(running_valid_batches, 1))
 
         
-        # -------------------------   WANDB LOGGING   ------------------------
+        # ----------------------------   LOGGING   ---------------------------
         if exists(wandb_logger):
             log_with_wandb(
                 logger=wandb_logger,
