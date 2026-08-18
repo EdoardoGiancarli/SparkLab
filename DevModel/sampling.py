@@ -23,7 +23,15 @@ from torch.types import Tensor
 from .modules import exists
 
 
-__all__ = []
+__all__ = [
+    'DiffusionRegistry',
+    'get_diff_registry',
+    'convert_model_output',     # NOTE: not implemented
+    'extract',
+    'Sampler',
+    'DPMSolverPP2MSampler',
+    'sample',
+]
 
 
 @dataclass
@@ -77,7 +85,7 @@ def convert_model_output(
     Returns:
         out (Tensor): Model prediction in selected domain.
     """
-    pass
+    raise NotImplementedError('Still in progress, may not be useful as first intended.')
 
 
 def extract(vals: Tensor, t: Tensor, x_dims: int) -> Tensor:

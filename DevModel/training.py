@@ -29,7 +29,16 @@ from .modules import exists
 from .sampling import Sampler
 
 
-__all__ = []
+__all__ = [
+    'set_default',
+    'TrainParams',
+    'TrainResults',
+    'CheckPointManager',
+    'execute_every',
+    'log_with_wandb',
+    'config_training',
+    'train_model',
+]
 
 
 def set_default(val: Any, default: Any) -> Any:
@@ -235,7 +244,7 @@ def train_model(
     learning_rate: float,
     train_dl: DataLoader,
     valid_dl: DataLoader,
-    wandb_logger: Run,
+    wandb_logger: Optional[Run] = None,
     ckpnt_manager: Optional[CheckPointManager] = None,
     **model_kws,
 ) -> TrainResults:
@@ -256,7 +265,7 @@ def train_model(
         else model.parameters()
     )
     optimiser = params.optimiser(tot_pars_to_opt, lr=learning_rate)
-    scheduler = params.lr_scheduler(optimiser)
+    lr_scheduler = params.lr_scheduler(optimiser)
     scaler = GradScaler(device_type)
 
     # config procedure/loss container
@@ -412,9 +421,9 @@ def train_model(
                 )
 
         try:
-            scheduler.step(avg_valid_loss[-1])
+            lr_scheduler.step(avg_valid_loss[-1])
         except TypeError:
-            scheduler.step()
+            lr_scheduler.step()
     
     return TrainResults(*tuple(map(torch.tensor, (avg_train_loss, avg_valid_loss))))
 
