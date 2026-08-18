@@ -172,8 +172,6 @@ class Unet(nn.Module):
         else:
             block_klass = partial(ResnetBlock, groups=resnet_block_groups, rmsnorm=rmsnorm)
 
-        LineAttn = partial(LinearAttention, )
-
         # time embedding + source params embedding
         time_dim = 4 * dim
         self.time_mlp = (
