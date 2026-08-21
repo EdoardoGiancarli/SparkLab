@@ -110,9 +110,9 @@ def normalise_sgs(img: Tensor, eps: float = 1e-6) -> Tensor:
 
     The shadowgrams contain the collected photon distribution from a
     given source, so the normalisation is performed by subtracting
-    the `median` and dividing by the `std` of the data.
+    the `mean` and dividing by the `std` of the data.
 
-    NOTE: median and std are computed only wrt the detected photons,
+    NOTE: mean and std are computed only wrt the detected photons,
           NOT over the whole array (i.e., where `sg_{i} > 0`).
 
     Args:
@@ -122,12 +122,14 @@ def normalise_sgs(img: Tensor, eps: float = 1e-6) -> Tensor:
     Returns:
         out (Tensor): Normalised source shadowgram images.
     """
-    mask = img > 0
-    proj = img[mask]
-    mu, std = proj.median(), proj.std().clamp(min=eps)
-    out = torch.zeros_like(img)
-    out[mask] = (proj - mu) / std
-    return out
+    
+
+
+    els = (img > 0).float().sum(dim=(-2, -1), keepdim=True)
+    mu = img.sum(dim=(-2, -1), keepdim=True) / (els - 1.0)
+    std = ((img - mu) ** 2).sum(dim=(-2, -1), keepdim=True) / (els - 2.0)
+    std = std.sqrt().clamp(min=eps)
+    return (img - mu) / std
 
 
 def normalise_psfs(img: Tensor, var: Tensor, max_snr: float = 2e3, eps: float = 1e-6) -> Tensor:
@@ -252,7 +254,7 @@ def get_dataset(
         sgs_list.append(sgs)
         gtpars_list.append(gtpars)
 
-        psfs, extpars = map(to_tensor32f, (tuple(data['condition'].values())))
+        psfs, extpars = map(to_tensor32f, (tuple(data['conditioning'].values())))
         psfs_list.append(psfs)
         extpars_list.append(extpars)
 
