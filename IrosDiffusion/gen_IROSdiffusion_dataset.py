@@ -19,11 +19,11 @@ Dataset Generation for IROS Diffusion.
           joint-diffusion process;
     
     * *info* (`dict[str, Any]`):
-        - *instr_var* (`dict[str, NDArray]`):
-            * array `[N, H_spsf, W_spsf]` with instrumental SPSF variance profiles, needed for
-              SPSFs normalisation during data pre-processing;
-            * array `[N,]` with instrumental variance values at each SPSF peak, needed for peak
-              counts normalisation during data pre-processing;
+        - array `[N, H_sg, W_sg]` with the $N$ source shadowgram footprints, needed for centering;
+        - array `[N, H_spsf, W_spsf]` with instrumental SPSF variance profiles, needed for
+          SPSFs normalisation during data pre-processing;
+        - array `[N,]` with instrumental variance values at each SPSF peak, needed for peak
+          counts normalisation during data pre-processing;
 
     * *camera*  (`dict[str, Any]`):
         - dict container with main objects and info on a LEM-X coded-mask camera, including:
@@ -88,14 +88,23 @@ def get_dirpaths() -> tuple[str, str]:
 @dataclass
 class Dataset:
     """
-    Container for signal data (ground-truth shadowgrams `[N, H_s, W_s]`, params `[N, 3]`),
-    conditioning (SPSFs `[N, H_c, W_c]`, init params `[N, 3]`) and instrumental variance
-    (SPSfs variance profiles `[N, H_c, W_c]`, peak variance values `[N,]`).
+    Data container for:
+        - actual data passed to model:
+            * ground-truth signal (shadowgrams `[N, H_s, W_s]`, params `[N, 3]`)
+            * conditioning (SPSFs `[N, H_c, W_c]`, init params `[N, 3]`)
+        
+        - data needed during dataset normalisation and/or signal modulation:
+            * shadowgrams footprint `[N, H_s, W_s]`
+            * SPSFs variance profiles `[N, H_c, W_c]`
+            * SPSFs peak variance values `[N,]`
     """
+    # model data
     sgs: NDArray
     gt_params: NDArray
     psfs: NDArray
     init_params: NDArray
+    # norm + modulation data
+    sg_footprints: NDArray
     psfvars: NDArray
     peaks_var: NDArray
 
@@ -137,15 +146,15 @@ def generate_data(
     psfs = np.empty((n, 2 * cy + 1, 2 * cx + 1), dtype=np.float32)
     init_params = np.empty((n, 3), dtype=np.float32)
 
+    sg_fps = np.empty((n, *camera.shape_detector), dtype=np.float16)
     psfvars = np.empty((n, 2 * cy + 1, 2 * cx + 1), dtype=np.float32)
     peaks_var = np.empty(n, dtype=np.float32)
 
     loop = tqdm(enumerate(zip(rates, coords)), total=n, desc='Generating Data')
     for idx, (r, crd) in loop:
         sx, sy = crd
-        sg = (
-            rng.poisson(r, size=camera.shape_detector) * model_shadowgram(camera, sx, sy, vignetting, psfy, normalise=False)
-        )
+        sg_fp = model_shadowgram(camera, sx, sy, vignetting, psfy, normalise=False)
+        sg = sg_fp * rng.poisson(r, size=camera.shape_detector)
 
         sky = decode(camera, sg)
         varmap = variance(camera, sg)
@@ -156,10 +165,16 @@ def generate_data(
         gt_params[idx] = (sx, sy, sg.sum())
         psfs[idx] = sky[y - cy : y + cy + 1, x - cx : x + cx + 1]
         init_params[idx] = (*pos2shift(camera, y, x), sky[y, x])
+
+        sg_fps[idx] = sg_fp
         psfvars[idx] = varmap[y - cy : y + cy + 1, x - cx : x + cx + 1]
         peaks_var[idx] = varmap[y, x]
 
-    return Dataset(sgs, gt_params, psfs, init_params, psfvars, peaks_var)
+    ds = Dataset(
+        sgs=sgs, gt_params=gt_params, psfs=psfs, init_params=init_params,
+        sg_footprints=sg_fps, psfvars=psfvars, peaks_var=peaks_var,
+    )
+    return ds
 
 # - dataset handling
 def gather_dataset(camera: CodedMaskCamera, data: Dataset) -> dict[str, Any]:
@@ -171,10 +186,9 @@ def gather_dataset(camera: CodedMaskCamera, data: Dataset) -> dict[str, Any]:
     out['data'] = {'imgs': data.sgs, 'params': data.gt_params}
     out['conditioning'] = {'imgs': data.psfs, 'params': data.init_params}
     out['info'] = {
-        'instr_var': {
-            'psfvar_img': data.psfvars,
-            'peakvar_arr': data.peaks_var,
-        },
+        'data_imgs_footprints': data.sg_footprints,
+        'psfvar_img': data.psfvars,
+        'peakvar_arr': data.peaks_var,
     }
     
     out['camera'] = {
