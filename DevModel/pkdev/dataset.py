@@ -104,7 +104,7 @@ def safe_load(filepath: str | Path, msg: str = '', lvl: Literal['warn', 'err'] =
         raise type(e) from e
     
 
-def normalise_sgs(img: Tensor, eps: float = 1e-6) -> Tensor:
+def normalise_sgs(img: Tensor, footprint: Tensor, eps: float = 1e-6) -> Tensor:
     """
     Normalises source shadowgrams in dataset through z-score.
 
@@ -112,24 +112,27 @@ def normalise_sgs(img: Tensor, eps: float = 1e-6) -> Tensor:
     given source, so the normalisation is performed by subtracting
     the `mean` and dividing by the `std` of the data.
 
-    NOTE: mean and std are computed only wrt the detected photons,
-          NOT over the whole array (i.e., where `sg_{i} > 0`).
+    Mean and std are computed only wrt the detected photons, NOT over
+    the whole array (i.e., where `footprint > 0`), with `footprint`
+    being the projected mask pattern layout onto the detector plane.
 
     Args:
         img (Tensor): Input shadowgrams with shape `[N, C, H_sg, W_sg]`.
+        footprint (Tensor): Shadowgrams projection footprint `[N, C, H_sg, W_sg]`.
         eps (float, optional (default=`1e-6`)): Tolerance for counts std.
     
     Returns:
         out (Tensor): Normalised source shadowgram images.
-    """
-    
+    """ 
+    mask = (footprint > 0).float()
+    nels = mask.sum(dim=(-2, -1), keepdim=True)
 
-
-    els = (img > 0).float().sum(dim=(-2, -1), keepdim=True)
-    mu = img.sum(dim=(-2, -1), keepdim=True) / (els - 1.0)
-    std = ((img - mu) ** 2).sum(dim=(-2, -1), keepdim=True) / (els - 2.0)
+    mu = img.sum(dim=(-2, -1), keepdim=True) / nels
+    std = torch.square(mask * (img - mu))
+    std = std.sum(dim=(-2, -1), keepdim=True) / nels
     std = std.sqrt().clamp(min=eps)
-    return (img - mu) / std
+
+    return mask * (img - mu) / std
 
 
 def normalise_psfs(img: Tensor, var: Tensor, max_snr: float = 2e3, eps: float = 1e-6) -> Tensor:
@@ -234,9 +237,12 @@ def get_dataset(
     # sources PSFs `[N, H_c, W_c]` and extracted params `[N, 3]`
     psfs_list: list[Tensor] = []
     extpars_list: list[Tensor] = []
-    # instrumental variance profiles `[N, H_c, W_c]` and at PSF peaks `[N,]` + camera specs
+    # shadowgram footprints, instrumental variance profiles `[N, H_c, W_c]`
+    # and relative value at sources PSF peaks `[N,]` and camera specs
+    sg_fps_list: list[Tensor] = []
     psfvars_list: list[Tensor] = []
     extvars_list: list[Tensor] = []
+
     camdata: Optional[dict[str, Any]] = None
 
     # glob dataset files and store data from dataset chunks
@@ -258,8 +264,9 @@ def get_dataset(
         psfs_list.append(psfs)
         extpars_list.append(extpars)
 
-        v = data['info']['instr_var']
-        psfvars, extvars = map(to_tensor32f, (tuple(v.values())))
+
+        sg_fps, psfvars, extvars = map(to_tensor32f, (tuple(data['info'].values())))
+        sg_fps_list.append(sg_fps)
         psfvars_list.append(psfvars)
         extvars_list.append(extvars)
 
@@ -268,17 +275,17 @@ def get_dataset(
             camdata = data['camera']
 
     # concatenate data from different dataset
-    sgs, gtpars, psfs, extpars, psfvars, extvars = map(
+    sgs, gtpars, psfs, extpars, sg_fps, psfvars, extvars = map(
         lambda x: torch.cat(x, dim=0),
-        (sgs_list, gtpars_list, psfs_list, extpars_list, psfvars_list, extvars_list),
+        (sgs_list, gtpars_list, psfs_list, extpars_list, sg_fps_list, psfvars_list, extvars_list),
     )
 
     # handle img tensors channel dim (default: 1 channel)
     get_channels = set_default(handle_chs, lambda x: x.unsqueeze(dim=1))
-    sgs, psfs, psfvars = map(get_channels, (sgs, psfs, psfvars))
+    sgs, sg_fps, psfs, psfvars = map(get_channels, (sgs, sg_fps, psfs, psfvars))
 
     # normalise data
-    sgs = normalise_sgs(sgs)
+    sgs = normalise_sgs(sgs, sg_fps)
     psfs = normalise_psfs(psfs, psfvars)
     gtpars = normalise_params(gtpars, camdata, extvars)
     extpars = normalise_params(extpars, camdata, extvars)
