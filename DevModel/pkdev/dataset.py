@@ -254,7 +254,11 @@ def get_dataset(
     to_tensor32f = lambda x: torch.as_tensor(x, dtype=torch.float32)
     
     for idx, dspath in tqdm(enumerate(pathslist), desc='Loading Data'):
-        data: dict[str, Any] = safe_load(dspath)
+        
+        # safe load dataset with warning, if None go to next iter
+        data: Optional[dict[str, Any]] = safe_load(dspath)
+        if data is None:
+            continue
 
         sgs, gtpars = map(to_tensor32f, (tuple(data['data'].values())))
         sgs_list.append(sgs)
@@ -263,7 +267,6 @@ def get_dataset(
         psfs, extpars = map(to_tensor32f, (tuple(data['conditioning'].values())))
         psfs_list.append(psfs)
         extpars_list.append(extpars)
-
 
         sg_fps, psfvars, extvars = map(to_tensor32f, (tuple(data['info'].values())))
         sg_fps_list.append(sg_fps)
