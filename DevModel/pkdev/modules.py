@@ -119,9 +119,9 @@ class PreNorm(nn.Module):
         self.fn = fn
         self.norm = RMSNorm(dim) if rmsnorm else nn.GroupNorm(1, dim)
 
-    def forward(self, x: Tensor) -> Tensor:
+    def forward(self, x: Tensor, *args, **kwargs) -> Tensor:
         x = self.norm(x)
-        return self.fn(x)
+        return self.fn(x, *args, **kwargs)
 
 
 class ResidualConnection(nn.Module):
