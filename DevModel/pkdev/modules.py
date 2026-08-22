@@ -266,7 +266,7 @@ class ConvNextBlock(nn.Module):
         self.proj = (
             project_adaptive_params(
                 nn.GELU(),
-                nn.Linear(time_emb_dim + classes_emb_dim, 2 * dim_out),
+                nn.Linear(time_emb_dim + classes_emb_dim, 2 * dim),
             )
             if (time_emb_dim or classes_emb_dim) else None
         )
