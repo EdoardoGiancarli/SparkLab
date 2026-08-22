@@ -202,12 +202,13 @@ class ResnetBlock(nn.Module):
         self.res_conv = nn.Conv2d(dim, dim_out, 1) if dim != dim_out else nn.Identity()
 
         # AdaGN- or AdaLN-Zero (training stability)
+        time_emb_dim, classes_emb_dim = map(lambda x: x or 0, (time_emb_dim, classes_emb_dim))
         self.proj = (
             project_adaptive_params(
                 nn.SiLU(),
                 nn.Linear(time_emb_dim + classes_emb_dim, 2 * dim_out),
             )
-            if (exists(time_emb_dim) or exists(classes_emb_dim)) else None
+            if (time_emb_dim or classes_emb_dim) else None
         )
 
     def forward(
@@ -261,12 +262,13 @@ class ConvNextBlock(nn.Module):
         self.res_conv = nn.Conv2d(dim, dim_out, 1) if dim != dim_out else nn.Identity()
 
         # AdaGN- or AdaLN-Zero (training stability)
+        time_emb_dim, classes_emb_dim = map(lambda x: x or 0, (time_emb_dim, classes_emb_dim))
         self.proj = (
             project_adaptive_params(
                 nn.GELU(),
                 nn.Linear(time_emb_dim + classes_emb_dim, 2 * dim_out),
             )
-            if (exists(time_emb_dim) or exists(classes_emb_dim)) else None
+            if (time_emb_dim or classes_emb_dim) else None
         )
 
     def forward(
