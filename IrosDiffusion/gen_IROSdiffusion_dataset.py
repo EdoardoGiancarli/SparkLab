@@ -78,11 +78,11 @@ def get_dirpaths() -> tuple[str, str]:
     if iswin:
         return (
             '/mnt/d/PhD_AASS/Coding/Images_fits',
-            '/mnt/d/PhD_AASS/Coding/Images_fits',
+            '/mnt/d/PhD_AASS/Coding/IROS_Diffusion/SrcDiffusionDataset/raw',
         )
     return (
         '/mnt/dbb8f47e-da06-47bf-8ef5-038092af70f7/Edos_Magnificent_Manor/PhD_AASS/Coding/IROS_Data/Simulations',
-        '/mnt/dbb8f47e-da06-47bf-8ef5-038092af70f7/Edos_Magnificent_Manor/PhD_AASS/Coding/IROS_Diffusion/IROSdiffusion_datasets'
+        '/mnt/dbb8f47e-da06-47bf-8ef5-038092af70f7/Edos_Magnificent_Manor/PhD_AASS/Coding/IROS_Diffusion/SrcDiffusionDataset/raw'
     )
 
 @dataclass
