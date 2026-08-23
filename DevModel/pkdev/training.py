@@ -388,7 +388,7 @@ def train_model(
                 epoch=epoch,
             )
 
-        # model checkpoint and lr update
+        # model checkpoint
         if exists(ckpnt_manager):
             if execute_every(epoch, ckpnt_manager.log_ckpnt_every):
                 name = f'model_{model.__class__.__name__}_ckpnt{ckpnt_manager.checkpointID}_E{epoch}.pt'
@@ -432,6 +432,7 @@ def train_model(
                     valid_loss=torch.tensor(avg_valid_loss),    
                 )
 
+        # lr update
         try:
             lr_scheduler.step(avg_valid_loss[-1])
         except TypeError:
