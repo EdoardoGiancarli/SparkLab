@@ -158,8 +158,8 @@ class DPMSolverPP2MSampler(Sampler):
             raise ValueError(f"Unsupported prediction type '{pred_type}'.")
         
         self.pred_type = pred_type
-        self.lambda_t = torch.log(self.sqrt_alphas_cumprod / self.sqrt_one_minus_alphas_cumprod)
-        self.register_buffer('lambda_t', self.lambda_t)
+        lambda_t = torch.log(self.sqrt_alphas_cumprod / self.sqrt_one_minus_alphas_cumprod)
+        self.register_buffer('lambda_t', lambda_t)
 
         # multistep history tracking for 2nd order solver
         self.old_x: Optional[tuple[Tensor, Tensor]] = None
