@@ -72,18 +72,39 @@ from irosbm.mask import decode, variance
 from irosbm.optim import model_shadowgram
 
 # - helpers
-def get_dirpaths() -> tuple[str, str]:
+def select_dirpaths() -> tuple[Path, Path]:
     """Returns dirpath with mask file and where to save generated datasets, based on OS."""
-    iswin = Path('/mnt/d').is_dir()
-    if iswin:
-        return (
-            '/mnt/d/PhD_AASS/Coding/Images_fits',
-            '/mnt/d/PhD_AASS/Coding/IROS_Diffusion/SrcDiffusionDataset/raw',
-        )
-    return (
-        '/mnt/dbb8f47e-da06-47bf-8ef5-038092af70f7/Edos_Magnificent_Manor/PhD_AASS/Coding/IROS_Data/Simulations',
-        '/mnt/dbb8f47e-da06-47bf-8ef5-038092af70f7/Edos_Magnificent_Manor/PhD_AASS/Coding/IROS_Diffusion/SrcDiffusionDataset/raw'
-    )
+    machine = {
+        'win': Path('/mnt/d'),
+        'deb': Path('/mnt/dbb8f47e-da06-47bf-8ef5-038092af70f7'),
+        'quasar': Path('/home/egiancarli'),
+    }
+
+    ds_aliaspath = Path('IROS_Diffusion/SrcDiffusionDataset/raw')
+    hooks = {
+        'win': {
+            'wfm': Path('PhD_AASS/Coding/Images_fits/mask_NTHT_20260129_CORRECTED.fits'),
+            'jd_dataset': Path('PhD_AASS/Coding') / ds_aliaspath,
+        },
+        'deb': {
+            'wfm': Path('Edos_Magnificent_Manor/PhD_AASS/Coding/IROS_Data/Simulations/mask_NTHT_20260129_CORRECTED.fits'),
+            'jd_dataset': Path('Edos_Magnificent_Manor/PhD_AASS/Coding') / ds_aliaspath,
+        },
+        'quasar': {
+            'wfm': Path('/home/shared/wiseman_ref_files/camera/lem-x/parameters/mask/pattern/mask_050_1040x17_20260129_ELXDIM_250um_for_wiseman.fits'),
+            'jd_dataset': Path('lem-x') / ds_aliaspath,
+        },
+    }
+    os_type, root = next((p for p in machine.items() if Path(p[1]).is_dir()), (None, None))
+    if os_type is None:
+        raise ValueError('A0, ma ndo sei finit*?')
+
+    wfm, jd = map(lambda key: hooks[os_type][key], (('wfm', 'jd_dataset')))
+
+    wfm_path = wfm if wfm.is_absolute() else root / wfm
+    jd_path = root / jd
+
+    return wfm_path, jd_path
 
 @dataclass
 class Dataset:
@@ -284,16 +305,15 @@ def main():
     args = parser.parse_args()
 
 
-    MASKPATH, DSPATH = get_dirpaths()
+    MASKPATH, DSPATH = select_dirpaths()
 
     # get coded-mask camera specs
-    MASK_PATH: str = f"{MASKPATH}/mask_NTHT_20260129_CORRECTED.fits"
     UPS_X, UPS_Y = 2, 1
 
     VIGNETTING: bool = False
     PSFY: bool = False
 
-    wfm: CodedMaskCamera = codedmask(MASK_PATH, UPS_X, UPS_Y)
+    wfm: CodedMaskCamera = codedmask(MASKPATH, UPS_X, UPS_Y)
 
     # - for this test (full-ideal camera), the source shadowgrams will be generated manually by approximating sources emission
     #   with Poisson noise, and then multiplying for the shifted mask pattern to perform the projection onto the detector plane.

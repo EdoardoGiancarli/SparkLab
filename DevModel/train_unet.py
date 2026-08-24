@@ -121,16 +121,18 @@ def parse_args() -> argparse.Namespace:
     
     return args
 
-def select_dirpaths() -> tuple[str, str]:
+def select_dirpaths() -> tuple[Path, Path]:
     """Returns dirpaths to dataset(s) and model checkpoints, based on OS."""
-    rel_ds = 'PhD_AASS/Coding/IROS_Diffusion/SrcDiffusionDataset'
-    rel_chkpnt = 'PhD_AASS/Coding/IROS_Diffusion/ModelChkPoints'
+    machine = {
+        'win': Path('/mnt/d/PhD_AASS/Coding/IROS_Diffusion'),
+        'deb': Path('/mnt/dbb8f47e-da06-47bf-8ef5-038092af70f7/Edos_Magnificent_Manor/PhD_AASS/Coding/IROS_Diffusion'),
+        'quasar': Path('/home/egiancarli/lem-x/IROS_Diffusion'),
+    }
+    root = next((p for p in machine.values() if Path(p).is_dir()), None)
+    if root is None:
+        raise ValueError('A0, ma ndo sei finit*?')
 
-    root_wsl = Path('/mnt/d')
-    root_deb = Path('/mnt/dbb8f47e-da06-47bf-8ef5-038092af70f7/Edos_Magnificent_Manor')
-    basedir = root_wsl if root_wsl.is_dir() else root_deb
-
-    return map(str, (basedir / rel_ds, basedir / rel_chkpnt))
+    return root / 'SrcDiffusionDataset', root / 'ModelChkPoints'
 
 
 # `wandb` wrappers
@@ -208,12 +210,12 @@ def train():
     dspath, chkpntpath = select_dirpaths()
 
     # config dataset + dataloaders
-    ds_processed = f'{dspath}/processed/{args.datasetID}'
+    ds_processed = dspath / f'processed/{args.datasetID}'
     if Path(ds_processed).is_file():
         dataset = pk.load_dataset(ds_processed)
     else:
         dataset = get_dataset(
-            dirpath=f'{dspath}/raw',
+            dirpath=dspath / 'raw',
             reshape_sgs_to=tuple(args.reshape_sgs_to),
             reshape_mode=args.reshape_mode,
         )
@@ -272,7 +274,7 @@ def train():
     # save trained model + results
     pk.save_model(
         state_dict=tpars.model.state_dict(),
-        save_to=f'{chkpntpath}/../unet_jointdiffusion-{args.runID}.pt',
+        save_to=chkpntpath / f'../unet_jointdiffusion-{args.runID}.pt',
         info={
             'loss': {
                 'train_loss': results.train_loss,
