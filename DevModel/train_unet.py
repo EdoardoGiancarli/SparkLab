@@ -52,6 +52,8 @@ def parse_args() -> argparse.Namespace:
     data_grp.add_argument("--batch_size", type=int, default=32, help="Batch size for training and validation (default: %(default)s).")
     data_grp.add_argument("--valid_size", type=float, default=0.2, help="Fraction of data to use for validation (default: %(default)s).")
     data_grp.add_argument("--datasetID", type=str, default='srcIROS_jointdiffusion.pt', help="Dataset ID (default: %(default)s).")
+    data_grp.add_argument("--reshape_sgs_to", type=int, nargs=2, default=None, help="Shadowgrams reshaping dims (`[H, W]`) (default: %(default)s).")
+    data_grp.add_argument("--reshape_mode", type=str, default='nearest', help="Shadowgrams interpolation mode (default: %(default)s).")
 
     diff_grp = parser.add_argument_group("Diffusion Noise Scheduler")        # -------------------------
     diff_grp.add_argument("--beta_start", type=float, default=1e-4, help="Noise schedule start value (default: %(default)s).")
@@ -185,7 +187,8 @@ def run_w_wnb(
                 wandb_logger=logger,
                 **model_kws,
             )
-        except Exception:
+        except Exception as e:
+            print(f'\n\n[Train Failure] {e.__class__.__name__} hit during training :c\n\n')
             if ckpnt_manager is not None:
                 ckpnt_manager.save_checkpoint(
                     state_dict=params.model.state_dict(),
@@ -209,7 +212,11 @@ def train():
     if Path(ds_processed).is_file():
         dataset = pk.load_dataset(ds_processed)
     else:
-        dataset = get_dataset(f'{dspath}/raw')
+        dataset = get_dataset(
+            dirpath=f'{dspath}/raw',
+            reshape_sgs_to=tuple(args.reshape_sgs_to),
+            reshape_mode=args.reshape_mode,
+        )
         pk.save_dataset(dataset, ds_processed)
 
     train_dl, valid_dl = get_dataloaders(dataset, args.batch_size, args.valid_size)
@@ -257,7 +264,7 @@ def train():
         runID=args.runID,
         params=tpars,
         epochs=args.epochs,
-        learning_rate=args.learning_rate,
+        learning_rate=args.lr,
         dataloaders=(train_dl, valid_dl),
         ckpnt_manager=chkpnt_mng,
     )
@@ -284,7 +291,7 @@ def train():
                 'batch_size': args.batch_size,
                 'valid_size': args.valid_size,
                 'epochs': args.epochs,
-                'learning_rate': args.learning_rate,
+                'learning_rate': args.lr,
                 'lr_patience': args.lr_patience,
                 'lr_factor': args.lr_factor,
             
