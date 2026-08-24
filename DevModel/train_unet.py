@@ -190,6 +190,7 @@ def run_w_wnb(
                 ckpnt_manager.save_checkpoint(
                     state_dict=params.model.state_dict(),
                     name='model_checkpnt-last_updated.pt',
+                    info={'runID': runID},
                 )
             raise
 
@@ -235,6 +236,7 @@ def train():
         lr_scheduler=partial(
             opt.lr_scheduler.ReduceLROnPlateau, patience=args.lr_patience, factor=args.lr_factor,
         ),
+        model_info={'project': args.project, 'runID': args.runID},
     )
     tpars = config_training(**tpars_factory)
 

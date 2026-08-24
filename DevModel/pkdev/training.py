@@ -54,6 +54,7 @@ class TrainParams(NamedTuple):
     optimiser: Callable
     lr_scheduler: Callable
     device: Optional[str | torch.device]
+    model_info: Optional[dict[str, Any]]
 
 
 class TrainResults(NamedTuple):
@@ -219,6 +220,7 @@ def config_training(
     optimiser: Callable,
     lr_scheduler: Callable,
     device: Optional[str | torch.device] = None,
+    model_info: Optional[dict[str, Any]] = None,
     verbose: bool = True,
 ) -> TrainParams:
     """
@@ -234,7 +236,7 @@ def config_training(
             f'  - operating on device: {device}\n'
             f'  - model parameters: {n_params:,}\n'
         )
-    tp = TrainParams(model, sampler, loss, optimiser, lr_scheduler, device)
+    tp = TrainParams(model, sampler, loss, optimiser, lr_scheduler, device, model_info)
     return tp
 
 
@@ -298,9 +300,6 @@ def train_model(
 
             x_0_img, x_0_pars = map(to_device, x)
             c_img, c_pars = map(to_device, condition)
-            # # NOTE: if DataLoaders yield 5D tensors for imgs/pars (T, B, C, H, W)
-            # x_img, x_pars = map(lambda m: m.squeeze(0).to(device), x.chunk(2, dim=0))
-            # c_img, c_pars = map(lambda m: m.squeeze(0).to(device), condition.chunk(2, dim=0))
 
             # sample `t` uniformally for every entry in the batch
             t = torch.randint(0, ntsteps, (x_0_img.shape[0],), device=device).long()
@@ -397,6 +396,7 @@ def train_model(
                     'train_loss': avg_train_loss,
                     'valid_loss': avg_valid_loss,
                     'lr': optimiser.param_groups[0]["lr"],
+                    **(params.model_info if exists(params.model_info) else {}),
                 }
                 ckpnt_manager.save_checkpoint(
                     state_dict=model.state_dict(),
@@ -417,6 +417,7 @@ def train_model(
                         'train_loss': avg_train_loss,
                         'valid_loss': avg_valid_loss,
                         'lr': optimiser.param_groups[0]["lr"],
+                        **(params.model_info if exists(params.model_info) else {}),
                     }
                     ckpnt_manager.save_checkpoint(
                         state_dict=model.state_dict(),
