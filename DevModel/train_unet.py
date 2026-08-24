@@ -216,7 +216,7 @@ def train():
 
     # noise scheduler + define training params + CheckPointManager
     scheduler = pk.NoiseScheduler(args.timesteps)
-    betas = scheduler.cosine(args.beta_start, args.beta_end)
+    betas = scheduler.cosine()
 
     model: Unet = Unet(
         dim=args.dim,
