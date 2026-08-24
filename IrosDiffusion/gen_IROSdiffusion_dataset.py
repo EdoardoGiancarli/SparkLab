@@ -91,7 +91,7 @@ def select_dirpaths() -> tuple[Path, Path]:
             'jd_dataset': Path('Edos_Magnificent_Manor/PhD_AASS/Coding') / ds_aliaspath,
         },
         'quasar': {
-            'wfm': Path('/home/shared/wiseman_ref_files/camera/lem-x/parameters/mask/pattern/mask_050_1040x17_20260129_ELXDIM_250um_for_wiseman.fits'),
+            'wfm': Path('/home/shared/wiseman_ref_files/camera/lem-x/parameters/mask/pattern/mask_050_1040x17_20260129_ELXDIM_250um.fits'),
             'jd_dataset': Path('lem-x') / ds_aliaspath,
         },
     }
