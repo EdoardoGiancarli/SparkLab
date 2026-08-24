@@ -17,6 +17,7 @@ import warnings
 from tqdm import tqdm
 
 import torch
+import torch.nn.functional as F
 from torch.types import Tensor
 from torch.utils.data import Dataset, DataLoader, random_split
 
@@ -217,6 +218,8 @@ def normalise_params(params: Tensor, camdata: dict[str, Any], variances: Tensor)
 def get_dataset(
     dirpath: str | Path,
     handle_chs: Optional[Callable[[Tensor], Tensor]] = None,
+    reshape_sgs_to: Optional[tuple[int, ...] | Callable[[Tensor], Tensor]] = None,
+    reshape_mode: str = 'nearest',
 ) -> SrcDiffusionDataset:
     """
     Generates Dataset object containing data for LEM-X sources joint-diffusion.
@@ -227,6 +230,10 @@ def get_dataset(
         handle_chs (Callable, optional (default=`None`)):
             Callable for tensors channel dim handling. If None, dataset
             tensors will be broadcasted to have one channel.
+        reshape_sgs_to (tuple[int, ...], Callable, optional (default=`None`)):
+            Reshapes source shadowgrams spatial dims `[H, W]` by interpolation or fn.
+        reshape_mode (str, optional (default=`'nearest'`)):
+            Reshaping mode for `F.interpolate` (default fn if no custom is provided).
     
     Returns:
         out (SrcDiffusionDataset): Dataset for LEM-X sources joint-diffusion.
@@ -286,6 +293,14 @@ def get_dataset(
     # handle img tensors channel dim (default: 1 channel)
     get_channels = set_default(handle_chs, lambda x: x.unsqueeze(dim=1))
     sgs, sg_fps, psfs, psfvars = map(get_channels, (sgs, sg_fps, psfs, psfvars))
+
+    # shadowgrams reshaping
+    if reshape_sgs_to is not None:
+        reshape_sgs = (
+            reshape_sgs_to if callable(reshape_sgs_to)
+            else lambda x: F.interpolate(x, reshape_sgs_to, mode=reshape_mode)
+        )
+        sgs, sg_fps = map(reshape_sgs, (sgs, sg_fps))
 
     # normalise data
     sgs = normalise_sgs(sgs, sg_fps)
