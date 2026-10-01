@@ -281,6 +281,7 @@ def train():
                 'valid_loss': results.valid_loss,
             },
             'noise_schedule': {
+                'stype': 'cosine',
                 'beta_start': args.beta_start,
                 'beta_end': args.beta_end,
                 'timesteps': args.timesteps,

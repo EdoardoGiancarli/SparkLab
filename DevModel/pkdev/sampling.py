@@ -268,7 +268,7 @@ class DPMSolverPP2MSampler(Sampler):
         x_prev_img = (sigma_t_img / sigma_s_img) * x_img + alpha_t_img * (1.0 - torch.exp(-step_img)) * d_img
         x_prev_pars = (sigma_t_pars / sigma_s_pars) * x_pars + alpha_t_pars * (1.0 - torch.exp(-step_pars)) * d_pars
 
-        # 6. Store current predictions in history buffer
+        # store current predictions in history buffer
         self.old_denoised = (x0_img, x0_pars)
         self.old_step = step
 
