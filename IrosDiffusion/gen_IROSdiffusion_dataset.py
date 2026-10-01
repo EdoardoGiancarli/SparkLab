@@ -249,7 +249,7 @@ def save_dataset(data: dict[str, Any], save_to: str | Path, overwrite: bool = Fa
 
 def generate_in_step(
     camera: CodedMaskCamera,
-    batches: int | tuple[int],
+    batches: int | tuple[int, ...],
     save_to_dirpath: str | Path,
     start_from_ID: int = 1,
     rmin: float = 0.1,
@@ -323,7 +323,7 @@ def main():
     rnd_gen: Generator = np.random.default_rng()
 
     # config dataset generation
-    batches: int | tuple[int, int] = tuple(args.batches)
+    batches: int | tuple[int, ...] = tuple(args.batches)
     start_from_ID: int = args.start_from_ID
 
     # generate data
