@@ -9,10 +9,10 @@ Reference:
 """
 
 from bisect import bisect_left, bisect_right
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from functools import cached_property
 from pathlib import Path
-from typing import Callable, NamedTuple
+from typing import Callable, Literal, NamedTuple, Optional
 
 import numpy as np
 from numpy.typing import NDArray
@@ -311,16 +311,39 @@ def _shift(x: Tensor, rows: int, cols: int) -> Tensor:
     return arr_
 
 
-def _correlate(a: Tensor, b: Tensor) -> Tensor:
+def _correlate(a: Tensor, b: Tensor, mode: Literal['full', 'same'] = 'full') -> Tensor:
     """
     Cross-correlation equivalent to `scipy.signal.correlate`.
-    Assumes `a`, `b` to be 2D tensors.
+    Assumes input tensors to be 2D or 4D shaped.
     """
-    h, w = b.shape
-    out = F.conv2d(
-        a[None, None, ...], b[None, None, ...], padding=(h - 1, w - 1),
-    )
-    return out[0, 0]
+    _supp_ndim = [2, 4]
+    if (a.ndim not in _supp_ndim) or (b.ndim not in _supp_ndim):
+        raise ValueError(f'Input tensors must be 2D or 4D, got {a.ndim}D and {b.ndim}D.')
+    if a.ndim != b.ndim:
+        raise ValueError('Input tensors must have same dims (2D or 4D).')
+    
+    _supp_mode = ['full', 'same']
+    if mode not in _supp_mode:
+        raise ValueError(f"Invalid mode '{mode}', choose between {_supp_mode}.")
+
+    adapt_to_4d = lambda x: x[None, None, ...] if x.ndim == 2 else x
+    a_, b_ = map(adapt_to_4d, (a, b))
+    _, _, h_a, w_a = a_.shape
+    _, _, h_b, w_b = b_.shape
+    # use `conv2d` because it actually applies cross-correlation + compute full cc
+    # https://stackoverflow.com/questions/42970009/performing-convolution-not-cross-correlation-in-pytorch
+    out = F.conv2d(a_, b_, padding=(h_b - 1, w_b - 1))
+
+    # extract output with same shape as input for 'same' mode
+    # NOTE: this is necessary because cc performed with even kernels have problematic padding.
+    #       In `torch` conv operations are usually performed with odd kernels, but here the
+    #       bulk, mask and decoder tensors have even spatial shapes
+    # https://docs.pytorch.org/docs/2.14/generated/torch.nn.functional.conv2d.html
+    if mode == 'same':
+        hstart, wstart = (h_b - 1) // 2, (w_b - 1) // 2
+        out = out[..., hstart : hstart + h_a, wstart : wstart + w_a]
+
+    return out[0, 0] if a.ndim == 2 else out
 
 
 @dataclass(frozen=True)
@@ -374,10 +397,13 @@ class CodedMaskCamera:
     Raises:
         ValueError: If detector plane is larger than mask or if upscale factors are not positive
     """
-    # note that we are taking thunks here, rather than the actual array.
-    # two reasons for this:
-    #   1. python functions are hashable and using thunks keeps camera objects hashable themselves.
-    #   2. reading data may take time, thunk delays this expensive operation.
+    # NOTE: we are taking thunks here, rather than the actual array. Two reasons for this:
+    #   1. python functions are hashable and using thunks keeps camera objects hashable themselves
+    #   2. reading data may take time, thunk delays this expensive operation
+    # NOTE: the conversion of the bulk/mask/decoder patterns to `torch` is done directly on the
+    #       respective arrays, so to leave intact the synergy between astropy and numpy during
+    #       loading from FITS files; tensor binning is built directly in `torch`
+    # NOTE: now we have to select a device to initialise bulk, mask, decoder, balancing tensors
     get_mask: Callable[[], NDArray]
     get_decoder: Callable[[], NDArray]
     get_bulk: Callable[[], NDArray]
@@ -386,6 +412,26 @@ class CodedMaskCamera:
     upscale_y: int = 1
     hide_bulk_els_x: int | float = 0.0
     hide_bulk_els_y: int | float = 0.0
+    device: str | torch.device = 'cpu'
+
+    def to(self, device: str | torch.device) -> "CodedMaskCamera":
+        """
+        Moves instance to given device. If cached bulk, mask, decoder and
+        balancing tensors have been already computed, it simply moves them
+        to device. If not, replaces the instance with a copy on device.
+        """
+        if str(device) == str(self.device):
+            return self
+        
+        # creates new instance with updated device
+        new_cam = replace(self, device=device)
+
+        # reassign any tensor already computed
+        for attr in ('bulk', 'mask', 'decoder', 'balancing'):
+            if attr in self.__dict__:
+                new_cam.__dict__[attr]  = self.__dict__[attr].to(device)
+
+        return new_cam
 
     @cached_property
     def upscale_f(self):
@@ -515,13 +561,15 @@ class CodedMaskCamera:
     def mask(self) -> Tensor:
         """2D array representing the coded mask pattern."""
         mask = torch.from_numpy(self.get_mask())
-        return _upscale(mask, *self.upscale_f)
+        mask = _upscale(mask, *self.upscale_f)
+        return mask.to(self.device)
 
     @cached_property
     def decoder(self) -> Tensor:
         """2D array representing the mask pattern used for decoding."""
         decoder = torch.from_numpy(self.get_decoder())
-        return _upscale(decoder, *self.upscale_f)
+        decoder = _upscale(decoder, *self.upscale_f)
+        return decoder.to(self.device)
 
     @cached_property
     def bulk(self) -> Tensor:
@@ -539,7 +587,7 @@ class CodedMaskCamera:
         # the number of matrix elements in the subarray is `xmax - xmin + 1 - 1 == xmax - xmin`
         upscaled = _upscale(bulk, *self.upscale_f)[ymin:ymax, xmin:xmax]
         bulk_cover = self._mask_detector_artefacts(upscaled)
-        return upscaled * bulk_cover
+        return (upscaled * bulk_cover).to(self.device)
 
     @cached_property
     def balancing(self) -> Tensor:
@@ -607,28 +655,39 @@ def codedmask(
 
 def decode(camera: CodedMaskCamera, detector: Tensor) -> Tensor:
     """
+    Reconstructs balanced sky image from detector counts using cross-correlation.
+
+    Args:
+        camera (CodedMaskCamera): Instance containing mask and decoder patterns.
+        detector (Tensor): 2D tensor of detector counts.
+
+    Returns:
+        out (Tensor): Balanced cross-correlation sky image.
     """
-    raise NotImplementedError
+    cc = _correlate(camera.decoder, detector, mode="full")
+    sum_det, sum_bulk = map(torch.sum, (detector, camera.bulk))
+    cc_bal = cc - camera.balancing * sum_det / sum_bulk
+    return cc_bal
 
 
 def solid_angle() -> None:
     """"""
-    raise NotImplementedError
+    raise NotImplementedError('To be imported from `bloodmoon`.')
 
 
 def solid_angle_profile() -> None:
     """"""
-    raise NotImplementedError
+    raise NotImplementedError('To be imported from `bloodmoon`.')
 
 
 def variance() -> None:
     """"""
-    raise NotImplementedError
+    raise NotImplementedError('To be imported from `bloodmoon`.')
 
 
 def snratio() -> None:
     """"""
-    raise NotImplementedError
+    raise NotImplementedError('To be imported from `bloodmoon`.')
 
 
 """
@@ -641,12 +700,12 @@ def shift2pos(camera: CodedMaskCamera, shift_x: float, shift_y: float) -> tuple[
     Convert continuous sky-shift coordinates to nearest discrete pixel indices.
 
     Args:
-        camera: CodedMaskCamera instance containing binning information
-        shift_x: x-coordinate in sky-shift space (mm)
-        shift_y: y-coordinate in sky-shift space (mm)
+        camera (CodedMaskCamera): Instance containing binning information.
+        shift_x (float): x-coordinate in sky-shift space (mm).
+        shift_y (float): y-coordinate in sky-shift space (mm).
 
     Returns:
-        Tuple of (row, column) indices in the discrete sky image grid
+        out (tuple[int, int]): Sky image grid (row, column) idxs.
     """
     return (
         bisect_right(camera.bins_sky.y, shift_y) - 1,
