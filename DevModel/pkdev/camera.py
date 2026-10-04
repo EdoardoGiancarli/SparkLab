@@ -75,7 +75,6 @@ class BinsRectangular(NamedTuple):
     x: Tensor
     y: Tensor
 
-
 """
         ⢀⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
         ⢻⣿⡗⢶⣤⣀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣀⣠⣄
@@ -91,7 +90,6 @@ class BinsRectangular(NamedTuple):
         ⠀⠀⠀⠀⠀⠈⡇⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢸⣧⠀⠀⠀
         ⠀⠀⠀⠀⠀⠈⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠉⠁⠀⠀⠀
 """
-
 
 def validate_fits(filepath: Path | str) -> bool:
     """
@@ -216,7 +214,6 @@ def load_from_fits(filepath: str | Path) -> tuple:
 
     return get_mask, get_decoder, get_bulk, specs
 
-
 """
         ⠀⠀⠀⠀⠀⢸⠓⢄⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
         ⠀⠀⠀⠀⠀⢸⠀⠀⠑⢤⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
@@ -235,7 +232,6 @@ def load_from_fits(filepath: str | Path) -> tuple:
         ⠀⠀⠀⠀⠀⠉⠀⠀⠀⠙⢿⣳⠞⠳⡄⠀⠀⠀⢀⡞⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
         ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠉⠀⠀⠹⣄⣀⡤⠋⠀⠀⠀⠀⠀⠀⠀⠀
 """
-
 
 def _bisect_interval(x: Tensor, start: float, stop: float) -> tuple[int, int]:
     """
@@ -672,7 +668,6 @@ def codedmask(
         )
     raise NotImplementedError("Only reading masks from fits file is supported.")
 
-
 """
             ⠀⠀⣠⡶⠂⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
             ⠀⣰⣿⠃⠀⠀⠀⠀⠀⠀⠀⢀⣀⡀⠀⠀⠀⠀⠀⠀⠀
@@ -689,7 +684,6 @@ def codedmask(
             ⠀⠻⠿⣿⣿⣿⣿⣿⣿⣿⣿⡿⠿⠿⠛⠓⠀⠀⠀⠀⠀
             ⠀⠀⠀⠀⠀⠀⠀⠉⠀⠉⠈⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀
 """
-
 
 def decode(camera: CodedMaskCamera, detector: Tensor) -> Tensor:
     """
@@ -727,7 +721,6 @@ def snratio() -> None:
     """"""
     raise NotImplementedError('To be imported from `bloodmoon`.')
 
-
 """
 ⠀⠀⠀⠀⠀⠀⠀⠀⠀⣀⣠⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
 ⠀⠀⠀⠀⠀⠀⢀⣴⣾⣿⡟⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
@@ -760,7 +753,6 @@ def snratio() -> None:
                                                     ⣿⣿⣿⣿⣿⣿⠏⠀⢀⠀⣿⣿⣿⣿⣿⣿⣷⣶⣶⣿⣿⣿
                                                     ⣿⣿⣿⣿⣿⣿⣶⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿
 """
-
 
 def shift2pos(camera: CodedMaskCamera, shift_x: float, shift_y: float) -> tuple[int, int]:
     """
