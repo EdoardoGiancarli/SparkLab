@@ -319,8 +319,6 @@ def _correlate(a: Tensor, b: Tensor, mode: Literal['full', 'same'] = 'full') -> 
     _supp_ndim = [2, 4]
     if (a.ndim not in _supp_ndim) or (b.ndim not in _supp_ndim):
         raise ValueError(f'Input tensors must be 2D or 4D, got {a.ndim}D and {b.ndim}D.')
-    if a.ndim != b.ndim:
-        raise ValueError('Input tensors must have same dims (2D or 4D).')
     
     _supp_mode = ['full', 'same']
     if mode not in _supp_mode:
@@ -393,6 +391,7 @@ class CodedMaskCamera:
         upscale_f: Tuple of upscaling factors for x and y dimensions
         hide_bulk_els_x: Detector physical elements to hide along fine axis, default=`0.0` [mm].
         hide_bulk_els_y: Detector physical elements to hide along coarse axis, default=`0.0` [mm].
+        device: Device to allocate bulk, mask, decoder, balancing tensors, default=`'cpu'`.
 
     Raises:
         ValueError: If detector plane is larger than mask or if upscale factors are not positive
@@ -416,9 +415,8 @@ class CodedMaskCamera:
 
     def to(self, device: str | torch.device) -> "CodedMaskCamera":
         """
-        Moves instance to given device. If cached bulk, mask, decoder and
-        balancing tensors have been already computed, it simply moves them
-        to device. If not, replaces the instance with a copy on device.
+        Replaces instance updating the device. Reassignes bulk, mask,
+        decoder or balancing tensors if already computed once.
         """
         if str(device) == str(self.device):
             return self
