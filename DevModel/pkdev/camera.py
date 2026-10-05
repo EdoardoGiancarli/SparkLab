@@ -49,6 +49,8 @@ __all__ = [
     'variance',             # TBD
     'snratio',              # TBD
     # coords conversion
+    'argmax',
+    'find_boxmax',
     'shift2pos',
 ]
 
@@ -764,6 +766,52 @@ def snratio() -> None:
                                                     ⣿⣿⣿⣿⣿⣿⠏⠀⢀⠀⣿⣿⣿⣿⣿⣿⣷⣶⣶⣿⣿⣿
                                                     ⣿⣿⣿⣿⣿⣿⣶⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿
 """
+
+def argmax(x: Tensor) -> tuple[int, int]:
+    """
+    Finds indices of maximum value along spatial dimension.
+
+    Args:
+        x (Tensor): Input 2D tensor to search.
+
+    Returns:
+        out (tuple[int, int]): Indices of maximum value.
+    """
+    i, j = map(int, torch.unravel_index(x.argmax(), x.shape))
+    return i, j
+
+
+def find_boxmax(
+    x: Tensor,
+    centre: tuple[int, int],
+    boxsize: tuple[int, int] = (5, 5),
+) -> tuple[tuple[int, int], int | float]:
+    """
+    Finds the argmax within given box of the input 2D tensor.
+    Box is resized if exceeds tensor spatial boundaries.
+
+    Args:
+        x (Tensor):
+            Input tensor with any shape.
+        centre (tuple[int, int]):
+            Centre position to place the box.
+        boxsize (tuple[int, int], optional (default=`(5, 5)`)):
+            Size of the box to search for max value and its position.
+    
+    Returns:
+        argmax (tuple[int, int]): Max indexes along spatial dimension.
+        max (int | float): Max value within given box.
+    """
+    a, b = x.shape
+    p, q = centre
+    u, v = boxsize
+    rcut = slice(max(0, p - u), min(p + u + 1, a))
+    ccut = slice(max(0, q - v), min(q + v + 1, b))
+    n, m = argmax(x[rcut, ccut])
+    pos = (max(0, p - u) + n, max(0, q - v) + m)
+    val = x[*pos]
+    return pos, val
+
 
 def shift2pos(camera: CodedMaskCamera, shift_x: float, shift_y: float) -> tuple[int, int]:
     """
