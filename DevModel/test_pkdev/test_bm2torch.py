@@ -5,9 +5,11 @@ The tests are divided in:
     * testing custom, inner funcs
     * testing CodedMaskCamera instance
     * testing CAI operations
+    * testing additional/helper funcs
 """
 
 from bisect import bisect_right, bisect_left
+from typing import Optional
 import unittest
 from unittest import TestCase
 
@@ -16,6 +18,7 @@ from scipy.signal import correlate
 import torch
 from torch.types import Tensor
 
+from irosbm.types import BinsRectangular as bmBinsRectangular
 from irosbm.mask import (
     _bisect_interval as bm_bisect_interval,
     codedmask as bm_codedmask,
@@ -27,6 +30,7 @@ from irosbm.images import (
 )
 
 from pkdev.camera import (
+    BinsRectangular,
     _bisect_right,
     _bisect_left,
     _bisect_interval,
@@ -35,11 +39,15 @@ from pkdev.camera import (
     _correlate,
     codedmask,
     decode,
+    argmax,
+    find_boxmax,
 )
 
+from .assets import maskpath
 
-def assert_tensor_allclose(residuals: Tensor, eps: float = 1e-8) -> None:
-    torch.testing.assert_close(residuals, torch.zeros_like(residuals), atol=eps, rtol=0.0)
+
+def assert_tensor_allclose(residuals: Tensor, eps: float = 1e-8, msg: Optional[str] = None) -> None:
+    torch.testing.assert_close(residuals, torch.zeros_like(residuals), atol=eps, rtol=0.0, msg=msg)
     return
 
 
@@ -144,17 +152,132 @@ class TestCMC(TestCase):
     """
     Test class for the `CodedMaskCamera` instance conversion to torch.
     """
-    def setUp(self) -> None:
-        ...
+    def setUp(self):
+        upx, upy = 5, 2
+        self.wfm_bm = bm_codedmask(maskpath, upx, upy)
+        self.wfm = codedmask(maskpath, upx, upy)
+
+    def test_binning(self):
+        """
+        Tests the binning structure of CMC tensors.
+        """
+        def inspect_bins(bins: BinsRectangular, expected: bmBinsRectangular, grid: str, eps: float = 2e-5) -> None:
+            write_outmsg = lambda axis, res: (
+                f'[{grid}] Failed test on {axis} axis, mean_res (@ 3 sigma) = {res.mean().item()} +/- {3 * res.std().item()}'
+            )
+            res_x = bins.x - torch.from_numpy(expected.x)
+            assert_tensor_allclose(res_x, eps=eps, msg=write_outmsg('X', res_x))
+            res_y = bins.y - torch.from_numpy(expected.y)
+            assert_tensor_allclose(res_y, eps=eps, msg=write_outmsg('Y', res_y))
+            return
+
+        inspect_bins(self.wfm.bins_detector, self.wfm_bm.bins_detector, grid='DETECTOR')
+        inspect_bins(self.wfm.bins_mask, self.wfm_bm.bins_mask, grid='MASK')
+        inspect_bins(self.wfm.bins_sky, self.wfm_bm.bins_sky, grid='SKY')
+        return
+
+    def test_mask(self):
+        """Tests the mask/decoder patterns tensor initilisation (pattern vals and shape)."""
+        assert_tensor_allclose(self.wfm.mask - torch.from_numpy(self.wfm_bm.mask))
+        return
+
+    def test_bulk(self):
+        """Tests the detector bulk tensor initilisation (pattern vals and shape)."""
+        assert_tensor_allclose(self.wfm.bulk - torch.from_numpy(self.wfm_bm.bulk))
+        return
+
+    @unittest.skip('Waiting for cross-correlation memory allocation problem solving.')
+    def test_balancing(self):
+        """Tests the instrumental balancing tensor initilisation (pattern vals and shape)."""
+        assert_tensor_allclose(self.wfm.balancing - torch.from_numpy(self.wfm_bm.balancing))
+        return
+
+    def test_move_to_device(self):
+        """Tests CMC device shift."""
+        if torch.cuda.is_available():
+            wfm = codedmask(maskpath, 5, 2)
+            wfm = wfm.to('cuda')
+            self.assertEqual(str(wfm.device).split(':')[0], 'cuda')
+            self.assertEqual(str(wfm.bulk.device).split(':')[0], 'cuda')
+        else:
+            print('\n[INFO] cuda not available, skipped `test_move_to_device()` in TestCMC.\n')
+        return
 
 
 
+@unittest.skip('Waiting for cross-correlation memory allocation problem solving.')
 class TestCAIFuncs(TestCase):
     """
     Test class for CAI operations.
     """
-    def setUp(self) -> None:
-        ...
+    def setUp(self):
+        upx, upy = 2, 1
+        self.wfm_bm = bm_codedmask(maskpath, upx, upy)
+        self.wfm = codedmask(maskpath, upx, upy)
+
+    def test_decode_func(self):
+        """Tests if decoding behaves accordingly to base bm version."""
+        d_np = np.random.randint(1, 100, self.wfm_bm.shape_detector, dtype=np.float32)
+        sky_np = bm_decode(self.wfm_bm, d_np)
+
+        d_tr = torch.from_numpy(d_np).clone()
+        sky_tr = decode(self.wfm, d_tr)
+
+        assert_tensor_allclose(sky_tr - torch.from_numpy(sky_np))
+        return
+
+    def test_decode_detector_batch(self):
+        """Tests the decoding of a detector images batch."""
+        d_batch = torch.randint(1, 100, (5, 1, *self.wfm.shape_detector), dtype=torch.float32)
+        sky_batch = decode(self.wfm, d_batch)
+
+        for idx, d in enumerate(d_batch):
+            sky = decode(self.wfm, d)
+            assert_tensor_allclose(sky - sky_batch[idx])
+
+        return
+
+
+
+class TestHelperFuncs(TestCase):
+    """
+    Test class for additional/helper funcs.
+    """
+    def setUp(self):
+        pass
+
+    def test_argmax(self):
+        """Tests the `argmax` func."""
+        a = torch.tensor(
+            [
+                [0, 5, 2, 6, 3, 7, 1, 3, 6,],
+                [0, 5, 2, 6, 3, 7, 1, 3, 6,],
+                [0, 5, 2, 6, 3, 7, 1, 3, 6,],
+                [0, 100, 2, 6, 3, 7, 1, 3, 6,],
+                [0, 5, 2, 6, 3, 7, 1, 3, 6,],
+            ],
+            dtype=torch.float32,
+        )
+        self.assertEqual(argmax(a), (3, 1))
+        return
+
+    def test_findboxmax(self):
+        """Tests the `find_boxmax` func."""
+        a = torch.tensor(
+            [
+                [0, 5, 2, 6, 3, 7, 1, 3, 6,],
+                [0, 5, 2, 6, 3, 7, 1, 3, 6,],
+                [0, 5, 2, 6, 3, 100, 1, 3, 6,],
+                [0, 5, 2, 6, 3, 7, 1, 3, 6,],
+                [0, 105, 2, 6, 3, 7, 1, 3, 6,],
+            ],
+            dtype=torch.float32,
+        )
+        centre = (1, 5)
+        self.assertEqual(find_boxmax(a, centre=centre, boxsize=(2, 2)), ((2, 5), 100))
+        centre = (3, 2)
+        self.assertEqual(find_boxmax(a, centre=centre, boxsize=(3, 3)), ((4, 1), 105))
+        return
 
 
 
