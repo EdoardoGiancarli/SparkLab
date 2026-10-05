@@ -380,6 +380,39 @@ def _correlate(a: Tensor, b: Tensor, mode: Literal['full', 'same'] = 'full') -> 
     return out[0, 0] if a.ndim == 2 else out
 
 
+def _fftcorrelate(
+    a: Tensor,
+    b: Tensor,
+    mode: Literal['full', 'same'] = 'full',
+) -> Tensor:
+    """
+    FFT-based cross-correlation equivalent to `scipy.signal.correlate`.
+
+    NOTE: this version exists because the linear variant raise a RuntimeError due to
+          problems in allocating memory (for CPU, while extremely slow for GPU).
+    NOTE: the `edge_ext` is used to remove boundary artefacts due to FFT operations.
+    """    
+    _supp_mode = ['full', 'same']
+    if mode not in _supp_mode:
+        raise ValueError(f"Invalid mode '{mode}', choose between {_supp_mode}.")
+
+    h_a, w_a = a.shape[-2:]
+    h_b, w_b = b.shape[-2:]
+    out_h = h_a + h_b - 1
+    out_w = w_a + w_b - 1
+
+    b_flipped = torch.flip(b, dims=(-2, -1))
+    A, B = map(lambda x: torch.fft.rfft2(x, s=(out_h, out_w)), (a, b_flipped))
+    out = torch.fft.irfft2(A * B, s=(out_h, out_w))
+    out = torch.nan_to_num(out, nan=1e-6, posinf=1e-6, neginf=1e-6)
+
+    if mode == 'same':
+        hstart, wstart = (h_b - 1) // 2, (w_b - 1) // 2
+        out = out[..., hstart : hstart + h_a, wstart : wstart + w_a]
+
+    return out
+
+
 @dataclass(frozen=True)
 class CodedMaskSpecs:
     """Camera geometry specifics container."""

@@ -37,6 +37,7 @@ from pkdev.camera import (
     _upscale,
     _shift,
     _correlate,
+    _fftcorrelate,
     codedmask,
     decode,
     argmax,
@@ -112,7 +113,13 @@ class TestCustomFuncs(TestCase):
 
         return
 
-    def _correlation_test_logic(self, in_shape: tuple[int, int], kernel_shape: tuple[int, int], mode: str) -> None:
+    def _correlation_test_logic(
+        self,
+        in_shape: tuple[int, int],
+        kernel_shape: tuple[int, int],
+        mode: str,
+        eps: float = 1e-8,
+    ) -> None:
         out_shape = (
             tuple(n + m - 1 for n, m in zip(in_shape, kernel_shape)) if mode == 'full' else in_shape
         )
@@ -123,16 +130,14 @@ class TestCustomFuncs(TestCase):
         result = _correlate(a_tr, b_tr, mode=mode)
 
         self.assertEqual(result.shape, out_shape)
-        assert_tensor_allclose(result - torch.from_numpy(expected))
+        assert_tensor_allclose(result - torch.from_numpy(expected), eps=eps)
         return
 
     def test_correlate_odd_parity(self):
         """Test func for `_correlate`, focussing on odd-shaped tensors."""
         in_shape = (11, 21)
         kernel_shape = (3, 7)
-        # full mode
         self._correlation_test_logic(in_shape, kernel_shape, mode='full')
-        # same mode
         self._correlation_test_logic(in_shape, kernel_shape, mode='same')
         return
 
@@ -140,9 +145,7 @@ class TestCustomFuncs(TestCase):
         """Test func for `_correlate`, focussing on even-shaped tensors."""
         in_shape = (10, 20)
         kernel_shape = (4, 8)
-        # full mode
         self._correlation_test_logic(in_shape, kernel_shape, mode='full')
-        # same mode
         self._correlation_test_logic(in_shape, kernel_shape, mode='same')
         return
 
@@ -186,7 +189,6 @@ class TestCMC(TestCase):
         assert_tensor_allclose(self.wfm.bulk - torch.from_numpy(self.wfm_bm.bulk))
         return
 
-    @unittest.skip('Waiting for cross-correlation memory allocation problem solving.')
     def test_balancing(self):
         """Tests the instrumental balancing tensor initilisation (pattern vals and shape)."""
         assert_tensor_allclose(self.wfm.balancing - torch.from_numpy(self.wfm_bm.balancing))
@@ -217,7 +219,7 @@ class TestCAIFuncs(TestCase):
 
     def test_decode_func(self):
         """Tests if decoding behaves accordingly to base bm version."""
-        d_np = np.random.randint(1, 100, self.wfm_bm.shape_detector, dtype=np.float32)
+        d_np = np.random.randint(1, 100, self.wfm_bm.shape_detector)
         sky_np = bm_decode(self.wfm_bm, d_np)
 
         d_tr = torch.from_numpy(d_np).clone()
@@ -228,7 +230,7 @@ class TestCAIFuncs(TestCase):
 
     def test_decode_detector_batch(self):
         """Tests the decoding of a detector images batch."""
-        d_batch = torch.randint(1, 100, (5, 1, *self.wfm.shape_detector), dtype=torch.float32)
+        d_batch = torch.randint(1, 100, (5, 1, *self.wfm.shape_detector))
         sky_batch = decode(self.wfm, d_batch)
 
         for idx, d in enumerate(d_batch):
