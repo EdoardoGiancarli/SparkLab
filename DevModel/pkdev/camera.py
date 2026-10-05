@@ -8,11 +8,10 @@ Reference:
     * `darksun` package @ https://github.com/EdoardoGiancarli/darksun
 """
 
-from bisect import bisect_left, bisect_right
 from dataclasses import dataclass, replace
 from functools import cached_property
 from pathlib import Path
-from typing import Callable, Literal, NamedTuple, Optional
+from typing import Callable, Literal, NamedTuple
 
 import numpy as np
 from numpy.typing import NDArray
@@ -34,6 +33,8 @@ __all__ = [
     '_fold',
     'load_from_fits',
     # camera management objects: geometry info/mask pattern/instr properties
+    '_bisect_left',
+    '_bisect_right',
     '_bisect_interval',
     '_upscale',
     '_shift',
@@ -233,10 +234,20 @@ def load_from_fits(filepath: str | Path) -> tuple:
         ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠉⠀⠀⠹⣄⣀⡤⠋⠀⠀⠀⠀⠀⠀⠀⠀
 """
 
+def _bisect_right(x: Tensor, value: int | float) -> int:
+    """Implementation of `bisect.bisect_right` for torch tensors."""
+    return torch.searchsorted(x, value, side='right').item()
+
+
+def _bisect_left(x: Tensor, value: int | float) -> int:
+    """Implementation of `bisect.bisect_left` for torch tensors."""
+    return torch.searchsorted(x, value, side='left').item()
+
+
 def _bisect_interval(x: Tensor, start: float, stop: float) -> tuple[int, int]:
     """
     Given a monotonically increasing tensor of floats and a float interval (start, stop)
-    in it, returns the indices of the smallest sub tensor containing the interval.
+    in it, returns the indices of the smallest sub-tensor containing the interval.
 
     Args:
         a (Tensor): A monotonically increasing tensor of floats.
@@ -258,7 +269,7 @@ def _bisect_interval(x: Tensor, start: float, stop: float) -> tuple[int, int]:
         raise ValueError('Input tensor must be monotonically increasing.')
     if not (start >= x[0] and stop <= x[-1]):
         raise ValueError(f"Interval ({start:+.2f}, {stop:+.2f}) out bounds input tensor ({x[0]:+.2f}, {x[-1]:+.2f}).")
-    return bisect_right(x, start) - 1, bisect_left(x, stop)
+    return _bisect_right(x, start) - 1, _bisect_left(x, stop)
 
 
 def _upscale(x: Tensor, upscale_x: int, upscale_y: int) -> Tensor:
@@ -767,8 +778,8 @@ def shift2pos(camera: CodedMaskCamera, shift_x: float, shift_y: float) -> tuple[
         out (tuple[int, int]): Sky image grid (row, column) idxs.
     """
     return (
-        bisect_right(camera.bins_sky.y, shift_y) - 1,
-        bisect_right(camera.bins_sky.x, shift_x) - 1,
+        _bisect_right(camera.bins_sky.y, shift_y) - 1,
+        _bisect_right(camera.bins_sky.x, shift_x) - 1,
     )
 
 
