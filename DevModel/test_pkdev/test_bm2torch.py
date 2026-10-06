@@ -207,17 +207,26 @@ class TestCMC(TestCase):
         return
 
     def test_mask(self):
-        """Tests the mask/decoder patterns tensor initilisation (pattern vals and shape)."""
+        """Tests the mask pattern tensor initilisation (vals, shape, gradient)."""
+        self.assertFalse(self.wfm.mask.requires_grad)
         assert_tensor_allclose(self.wfm.mask - torch.from_numpy(self.wfm_bm.mask))
         return
 
+    def test_decoder(self):
+        """Tests the decoder pattern tensor initilisation (vals, shape, gradient)."""
+        self.assertFalse(self.wfm.decoder.requires_grad)
+        assert_tensor_allclose(self.wfm.decoder - torch.from_numpy(self.wfm_bm.decoder))
+        return
+
     def test_bulk(self):
-        """Tests the detector bulk tensor initilisation (pattern vals and shape)."""
+        """Tests the detector bulk tensor initilisation (vals, shape, gradient)."""
+        self.assertFalse(self.wfm.bulk.requires_grad)
         assert_tensor_allclose(self.wfm.bulk - torch.from_numpy(self.wfm_bm.bulk))
         return
 
     def test_balancing(self):
-        """Tests the instrumental balancing tensor initilisation (pattern vals and shape)."""
+        """Tests the instrumental balancing tensor initilisation (vals, shape, gradient)."""
+        self.assertFalse(self.wfm.balancing.requires_grad)
         assert_tensor_allclose(self.wfm.balancing - torch.from_numpy(self.wfm_bm.balancing))
         return
 
