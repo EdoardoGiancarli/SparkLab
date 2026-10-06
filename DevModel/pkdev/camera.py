@@ -380,7 +380,7 @@ def _correlate(
     if method not in _supp_method:
         raise ValueError(f"Invalid method '{method}', choose between {_supp_method}.")
 
-    # choose method: as of now, the choice is simply linked to the tensor size
+    # as of now, method choice is linked to tensors size
     if method == 'auto':
         method = 'direct' if a.numel() * b.numel() < 500 * 500 * 10 * 10 else 'fft'
 
@@ -392,7 +392,7 @@ def _correlate(
         a_cc, b_cc = map(adapt_to_4d, (a_cc, b_cc))
         h_a, w_a = a_cc.shape[-2:]
         h_b, w_b = b_cc.shape[-2:]
-        # use `conv2d` because it actually applies cross-correlation + compute full cc
+        # use `conv2d` because it actually applies cross-correlation
         # https://stackoverflow.com/questions/42970009/performing-convolution-not-cross-correlation-in-pytorch
         out = F.conv2d(a_cc, b_cc, padding=(h_b - 1, w_b - 1))
         out = out[0, 0] if a.ndim == 2 else out
@@ -408,78 +408,10 @@ def _correlate(
         out = torch.nan_to_num(out, nan=0.0, posinf=0.0, neginf=0.0)
 
     if mode == 'same':
-        # NOTE: this is necessary (if direct method) because cc
-        #       performed with even kernels have problematic padding
-        # https://docs.pytorch.org/docs/2.14/generated/torch.nn.functional.conv2d.html
         hstart, wstart = (h_b - 1) // 2, (w_b - 1) // 2
         out = out[..., hstart : hstart + h_a, wstart : wstart + w_a]
 
     return out
-
-
-# def _correlate(a: Tensor, b: Tensor, mode: Literal['full', 'same'] = 'full') -> Tensor:
-#     """
-#     Cross-correlation equivalent to `scipy.signal.correlate`.
-#     Assumes input tensors to be 2D or 4D shaped.
-#     """
-#     _supp_ndim = [2, 4]
-#     if (a.ndim not in _supp_ndim) or (b.ndim not in _supp_ndim):
-#         raise ValueError(f'Input tensors must be 2D or 4D, got {a.ndim}D and {b.ndim}D.')
-    
-#     _supp_mode = ['full', 'same']
-#     if mode not in _supp_mode:
-#         raise ValueError(f"Invalid mode '{mode}', choose between {_supp_mode}.")
-
-#     adapt_to_4d = lambda x: x[None, None, ...] if x.ndim == 2 else x
-#     a_, b_ = map(adapt_to_4d, (a, b))
-#     _, _, h_a, w_a = a_.shape
-#     _, _, h_b, w_b = b_.shape
-#     # use `conv2d` because it actually applies cross-correlation + compute full cc
-#     # https://stackoverflow.com/questions/42970009/performing-convolution-not-cross-correlation-in-pytorch
-#     out = F.conv2d(a_, b_, padding=(h_b - 1, w_b - 1))
-
-#     # extract output with same shape as input for 'same' mode
-#     # NOTE: this is necessary because cc performed with even kernels have problematic padding.
-#     #       In `torch` conv operations are usually performed with odd kernels, but here the
-#     #       bulk, mask and decoder tensors have even spatial shapes
-#     # https://docs.pytorch.org/docs/2.14/generated/torch.nn.functional.conv2d.html
-#     if mode == 'same':
-#         hstart, wstart = (h_b - 1) // 2, (w_b - 1) // 2
-#         out = out[..., hstart : hstart + h_a, wstart : wstart + w_a]
-
-#     return out[0, 0] if a.ndim == 2 else out
-
-
-# def _fftcorrelate(
-#     a: Tensor,
-#     b: Tensor,
-#     mode: Literal['full', 'same'] = 'full',
-# ) -> Tensor:
-#     """
-#     FFT-based cross-correlation equivalent to `scipy.signal.correlate`.
-
-#     NOTE: this version exists because the linear variant raise a RuntimeError due to
-#           problems in allocating memory (for CPU, while extremely slow for GPU).
-#     """    
-#     _supp_mode = ['full', 'same']
-#     if mode not in _supp_mode:
-#         raise ValueError(f"Invalid mode '{mode}', choose between {_supp_mode}.")
-
-#     h_a, w_a = a.shape[-2:]
-#     h_b, w_b = b.shape[-2:]
-#     out_h = h_a + h_b - 1
-#     out_w = w_a + w_b - 1
-
-#     b_flipped = torch.flip(b, dims=(-2, -1))
-#     A, B = map(lambda x: torch.fft.rfft2(x, s=(out_h, out_w)), (a, b_flipped))
-#     out = torch.fft.irfft2(A * B, s=(out_h, out_w))
-#     out = torch.nan_to_num(out, nan=1e-6, posinf=1e-6, neginf=1e-6)
-
-#     if mode == 'same':
-#         hstart, wstart = (h_b - 1) // 2, (w_b - 1) // 2
-#         out = out[..., hstart : hstart + h_a, wstart : wstart + w_a]
-
-#     return out
 
 
 @dataclass(frozen=True)
@@ -862,35 +794,35 @@ def snratio() -> None:
 
 """
 ⠀⠀⠀⠀⠀⠀⠀⠀⠀⣀⣠⡀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
-⠀⠀⠀⠀⠀⠀⢀⣴⣾⣿⡟⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
-⠀⠀⠀⠀⢀⣴⠿⢟⣛⣩⣤⣶⣶⣶⣿⡇⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
-⠀⠀⢀⣴⣿⠿⠸⣿⣿⣿⣿⣿⣿⡿⢿⣿⡄⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
-⠀⢠⠞⠉⠀⠀⠀⣿⠋⠻⣿⣿⣿⠀⣦⣿⠏⠀⠀⠀⢀⣀⣀⣀⣀⣀⠀⠀
-⢠⠏⠀⠀⠀⠀⠀⠻⣤⣷⣿⣿⣿⣶⢟⣁⣒⣒⡋⠉⠉⠁⠀⠀⠀⠈⠉⡧
-⢻⡀⠀⠀⠀⠀⠀⣀⡤⠌⢙⣛⣛⣵⣿⣿⡛⠛⠿⠃⠀⠀⠀⠀⠀⢀⡜⠁
-⠀⠉⠙⠒⠒⠛⠉⠁⠀⠸⠛⠉⠉⣿⣿⣿⣿⣦⣄⠀⠀⠀⢀⣠⠞⠁⠀⠀
-⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⣿⣿⣿⡿⣿⣿⣷⡄⠞⠋⠀⠀⠀⠀⠀
-⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢸⣿⣿⣿⣷⡻⣿⣿⣧⠀⠀⠀⠀⠀⠀⠀
-⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢨⣑⡙⠻⠿⠿⠈⠙⣿⣧⠀⠀⠀⠀⠀⠀
-⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠸⣿⣷⡀⠀⠀⠀⠀⢹⣿⣆⠀⠀⠀⠀⠀
-⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢻⣿⡇⠀⠀⠀⠀⠸⣿⣿⡄⠀⠀⠀⠀
-⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠁⠀⠀⠀⠀⠀⡿⣿⣿⠀⠀⠀⠀
-⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠙⠀⠀⠀⠀⠀
-                                                    ⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡿⢿⣿⣿⣿⣿⣿⣿⣿⣿⣿
-                                                    ⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡇⠀⠛⠻⠁⣿⣿⣿⣿⣿⣿
-                                                    ⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡟⠀⠀⡀⠀⠀⣿⣿⣿⣿⣿⣿
-                                                    ⣿⣿⣿⣿⣿⣿⡏⠙⣿⣿⣿⠂⡀⠊⠀⢠⣿⣿⣿⣿⣿⣿
-                                                    ⣿⣿⣿⣿⣿⠿⠿⠂⠈⠩⢛⠊⠀⠘⠒⣾⣿⣿⣿⣿⣿⣿
-                                                    ⡿⢛⡙⠻⢷⣤⣷⣤⣴⣶⣴⣄⠀⠀⢀⠘⠿⣿⣿⣿⣿⣿
-                                                    ⠁⣾⣿⣧⠈⠻⣿⣿⣿⣿⣿⣿⣦⠀⠀⢻⣶⣄⠙⣿⣿⣿
-                                                    ⡆⢻⣿⣿⣧⠀⠙⢿⣿⣿⣿⠟⠁⠀⡐⠐⠛⢿⣷⠈⠻⣿
-                                                    ⣷⡈⢻⣿⣿⣇⠀⠀⠙⠛⠃⠀⠀⠀⡁⠀⠀⠈⣷⣸⢆⢙
-                                                    ⣿⣷⡀⠈⠻⢿⣧⡀⠀⢸⠀⠀⠀⠀⠀⠀⠀⢀⣿⣿⣿⣿
-                                                    ⣿⣿⣿⣆⠀⠀⢻⣿⣦⡜⠀⣀⣀⣠⣤⠀⣠⣾⣿⣿⣿⣿
-                                                    ⣿⣿⣿⣿⣿⣶⣿⣿⠟⢀⣼⣿⣿⣿⡟⠀⣿⣿⣿⣿⣿⣿
-                                                    ⣿⣿⣿⣿⣿⣿⣿⡟⠀⢼⣿⣿⣿⣿⣉⣄⠈⠻⠿⡿⣿⣿
-                                                    ⣿⣿⣿⣿⣿⣿⠏⠀⢀⠀⣿⣿⣿⣿⣿⣿⣷⣶⣶⣿⣿⣿
-                                                    ⣿⣿⣿⣿⣿⣿⣶⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿
+⠀⠀⠀⠀⠀⠀⢀⣴⣾⣿⡟⠁⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀            
+⠀⠀⠀⠀⢀⣴⠿⢟⣛⣩⣤⣶⣶⣶⣿⡇⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀             ⣿
+⠀⠀⢀⣴⣿⠿⠸⣿⣿⣿⣿⣿⣿⡿⢿⣿⡄⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀            ⣿⣿⣿
+⠀⢠⠞⠉⠀⠀⠀⣿⠋⠻⣿⣿⣿⠀⣦⣿⠏⠀⠀⠀⢀⣀⣀⣀⣀⣀⠀⠀          ⣿⣿⣿⣿⣿⣿⣿ 
+⢠⠏⠀⠀⠀⠀⠀⠻⣤⣷⣿⣿⣿⣶⢟⣁⣒⣒⡋⠉⠉⠁⠀⠀⠀⠈⠉⡧        ⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿
+⢻⡀⠀⠀⠀⠀⠀⣀⡤⠌⢙⣛⣛⣵⣿⣿⡛⠛⠿⠃⠀⠀⠀⠀⠀⢀⡜⠁            ⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿
+⠀⠉⠙⠒⠒⠛⠉⠁⠀⠸⠛⠉⠉⣿⣿⣿⣿⣦⣄⠀⠀⠀⢀⣠⠞⠁⠀⠀        ⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢀⣿⣿⣿⡿⣿⣿⣷⡄⠞⠋⠀⠀⠀⠀⠀        ⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢸⣿⣿⣿⣷⡻⣿⣿⣧⠀⠀⠀⠀⠀⠀⠀            ⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢨⣑⡙⠻⠿⠿⠈⠙⣿⣧⠀⠀⠀⠀⠀⠀          ⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿  
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠸⣿⣷⡀⠀⠀⠀⠀⢹⣿⣆⠀⠀⠀⠀⠀          ⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢻⣿⡇⠀⠀⠀⠀⠸⣿⣿⡄⠀⠀⠀⠀         ⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠁⠀⠀⠀⠀⠀⡿⣿⣿⠀⠀⠀⠀              ⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿
+⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠈⠙⠀⠀⠀⠀⠀            ⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿
+                                           ⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡿⢿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿
+                                            ⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡇⠀⠛⠻⠁⣿⣿⣿⣿⣿⣿⣿⣿⣿
+                                               ⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡟⠀⠀⡀⠀⠀⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿
+                                               ⣿⣿⣿⣿⣿⣿⡏⠙⣿⣿⣿⠂⡀⠊⠀⢠⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿
+                                               ⣿⣿⣿⣿⣿⠿⠿⠂⠈⠩⢛⠊⠀⠘⠒⣾⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿
+                                               ⡿⢛⡙⠻⢷⣤⣷⣤⣴⣶⣴⣄⠀⠀⢀⠘⠿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿
+                                               ⠁⣾⣿⣧⠈⠻⣿⣿⣿⣿⣿⣿⣦⠀⠀⢻⣶⣄⠙⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿
+                                               ⡆⢻⣿⣿⣧⠀⠙⢿⣿⣿⣿⠟⠁⠀⡐⠐⠛⢿⣷⠈⠻⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿
+                                               ⣷⡈⢻⣿⣿⣇⠀⠀⠙⠛⠃⠀⠀⠀⡁⠀⠀⠈⣷⣸⢆⢙⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿
+                                               ⣿⣷⡀⠈⠻⢿⣧⡀⠀⢸⠀⠀⠀⠀⠀⠀⠀⢀⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿
+                                               ⣿⣿⣿⣆⠀⠀⢻⣿⣦⡜⠀⣀⣀⣠⣤⠀⣠⣾⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿
+                                               ⣿⣿⣿⣿⣿⣶⣿⣿⠟⢀⣼⣿⣿⣿⡟⠀⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿
+                                               ⣿⣿⣿⣿⣿⣿⣿⡟⠀⢼⣿⣿⣿⣿⣉⣄⠈⠻⠿⡿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿
+                                               ⣿⣿⣿⣿⣿⣿⠏⠀⢀⠀⣿⣿⣿⣿⣿⣿⣷⣶⣶⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿
+                                               ⣿⣿⣿⣿⣿⣿⣶⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿
 """
 
 def argmax(x: Tensor) -> tuple[int, int]:
