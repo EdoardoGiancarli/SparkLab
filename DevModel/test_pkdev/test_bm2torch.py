@@ -37,9 +37,9 @@ from pkdev.camera import (
     _upscale,
     _shift,
     _correlate,
-    _fftcorrelate,
     codedmask,
     decode,
+    decode_batch,
     argmax,
     find_boxmax,
 )
@@ -149,6 +149,33 @@ class TestCustomFuncs(TestCase):
         self._correlation_test_logic(in_shape, kernel_shape, mode='same')
         return
 
+    def test_correlation_method_int(self):
+        """Test func for `_correlate`, focussing on 'direct' vs 'fft' method and int32 inputs."""
+        in_shape = (100, 120)
+        kernel_shape = (11, 13)
+
+        a, b = map(lambda s: torch.randint(1, 100, s, dtype=torch.int32), (in_shape, kernel_shape))
+        cc_direct = _correlate(a, b, method='direct')
+        cc_fft = _correlate(a, b, method='fft')
+
+        res = (cc_direct - cc_fft).to(torch.float32)
+        assert_tensor_allclose(res, eps=1e-6)
+        return
+
+    def test_correlation_method_float(self):
+        """Test func for `_correlate`, focussing on 'direct' vs 'fft' method and float32 inputs."""
+        in_shape = (100, 120)
+        kernel_shape = (11, 13)
+
+        a, b = map(lambda s: torch.randint(1, 100, s, dtype=torch.float32), (in_shape, kernel_shape))
+        cc_direct = _correlate(a, b, method='direct')
+        cc_fft = _correlate(a, b, method='fft')
+
+        res = cc_direct - cc_fft
+        assert_tensor_allclose(res, eps=1e-6, msg=f'mean_res (@ 3sigma) = {res.mean().item()} +/- {3 * res.std().item()}')
+        return
+
+
 
 
 class TestCMC(TestCase):
@@ -207,7 +234,6 @@ class TestCMC(TestCase):
 
 
 
-@unittest.skip('Waiting for cross-correlation memory allocation problem solving.')
 class TestCAIFuncs(TestCase):
     """
     Test class for CAI operations.
@@ -218,8 +244,8 @@ class TestCAIFuncs(TestCase):
         self.wfm = codedmask(maskpath, upx, upy)
 
     def test_decode_func(self):
-        """Tests if decoding behaves accordingly to base bm version."""
-        d_np = np.random.randint(1, 100, self.wfm_bm.shape_detector)
+        """Tests if decoding behaves accordingly to base bm version, with `decode`."""
+        d_np = np.random.randint(1, 100, self.wfm_bm.shape_detector) * self.wfm_bm.bulk
         sky_np = bm_decode(self.wfm_bm, d_np)
 
         d_tr = torch.from_numpy(d_np).clone()
@@ -229,13 +255,16 @@ class TestCAIFuncs(TestCase):
         return
 
     def test_decode_detector_batch(self):
-        """Tests the decoding of a detector images batch."""
-        d_batch = torch.randint(1, 100, (5, 1, *self.wfm.shape_detector))
-        sky_batch = decode(self.wfm, d_batch)
+        """Tests the decoding of a detector images batch, with `decode_batch`."""
+        d_batch = (
+            torch.randint(1, 100, (5, 1, *self.wfm.shape_detector)) * torch.cat(5 * [self.wfm.bulk[None, None, ...]], dim=0)
+        )
+        sky_batch = decode_batch(self.wfm, d_batch)
+        self.assertEqual(sky_batch.shape, (5, 1, *self.wfm.shape_sky))
 
         for idx, d in enumerate(d_batch):
-            sky = decode(self.wfm, d)
-            assert_tensor_allclose(sky - sky_batch[idx])
+            sky = decode(self.wfm, d[0])
+            assert_tensor_allclose(sky - sky_batch[idx, 0])
 
         return
 

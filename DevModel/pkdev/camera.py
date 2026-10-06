@@ -347,70 +347,139 @@ def _shift(x: Tensor, rows: int, cols: int) -> Tensor:
     return arr_
 
 
-def _correlate(a: Tensor, b: Tensor, mode: Literal['full', 'same'] = 'full') -> Tensor:
-    """
-    Cross-correlation equivalent to `scipy.signal.correlate`.
-    Assumes input tensors to be 2D or 4D shaped.
-    """
-    _supp_ndim = [2, 4]
-    if (a.ndim not in _supp_ndim) or (b.ndim not in _supp_ndim):
-        raise ValueError(f'Input tensors must be 2D or 4D, got {a.ndim}D and {b.ndim}D.')
-    
-    _supp_mode = ['full', 'same']
-    if mode not in _supp_mode:
-        raise ValueError(f"Invalid mode '{mode}', choose between {_supp_mode}.")
-
-    adapt_to_4d = lambda x: x[None, None, ...] if x.ndim == 2 else x
-    a_, b_ = map(adapt_to_4d, (a, b))
-    _, _, h_a, w_a = a_.shape
-    _, _, h_b, w_b = b_.shape
-    # use `conv2d` because it actually applies cross-correlation + compute full cc
-    # https://stackoverflow.com/questions/42970009/performing-convolution-not-cross-correlation-in-pytorch
-    out = F.conv2d(a_, b_, padding=(h_b - 1, w_b - 1))
-
-    # extract output with same shape as input for 'same' mode
-    # NOTE: this is necessary because cc performed with even kernels have problematic padding.
-    #       In `torch` conv operations are usually performed with odd kernels, but here the
-    #       bulk, mask and decoder tensors have even spatial shapes
-    # https://docs.pytorch.org/docs/2.14/generated/torch.nn.functional.conv2d.html
-    if mode == 'same':
-        hstart, wstart = (h_b - 1) // 2, (w_b - 1) // 2
-        out = out[..., hstart : hstart + h_a, wstart : wstart + w_a]
-
-    return out[0, 0] if a.ndim == 2 else out
-
-
-def _fftcorrelate(
+def _correlate(
     a: Tensor,
     b: Tensor,
     mode: Literal['full', 'same'] = 'full',
+    method: Literal['auto', 'direct', 'fft'] = 'auto',
 ) -> Tensor:
     """
-    FFT-based cross-correlation equivalent to `scipy.signal.correlate`.
+    Performs cross-correlation operation between input tensors, following
+    `scipy.signal.correlate` approach. Assumes input tensors to be 2D or 4D shaped.
+    This exists to perform CAI basic operations between images.
 
-    NOTE: this version exists because the linear variant raise a RuntimeError due to
-          problems in allocating memory (for CPU, while extremely slow for GPU).
-    NOTE: the `edge_ext` is used to remove boundary artefacts due to FFT operations.
-    """    
+    This version allows for gradient back-propagation when used in a training loop,
+    separating the gradient computation of the two input tensors (e.g., if
+    `a.requires_grad == False` and `b.requires_grad == True`, `out` will be linked
+    to the gradient graph while `a` won't be part of it.)
+
+    NOTE: if 'auto', the operation method is chosen based on the input tensors size,
+          avoiding memory overflow and/or high computational costs.
+    NOTE: the computation based on 'fft' may be less precise than the 'direct' one.  
+    """
+    _supp_ndim = [2, 4]
     _supp_mode = ['full', 'same']
+    _supp_method = ['auto', 'direct', 'fft']
+    
+    if (a.ndim not in _supp_ndim) or (b.ndim not in _supp_ndim):
+        raise ValueError(f'Input tensors must be 2D or 4D, got {a.ndim}D and {b.ndim}D.')
+    if (a.ndim == 4 and a.shape[1] != 1) or (b.ndim == 4 and b.shape[1] != 1):
+        raise ValueError(f'Only mono-channel tensors are supported.')
     if mode not in _supp_mode:
         raise ValueError(f"Invalid mode '{mode}', choose between {_supp_mode}.")
+    if method not in _supp_method:
+        raise ValueError(f"Invalid method '{method}', choose between {_supp_method}.")
 
-    h_a, w_a = a.shape[-2:]
-    h_b, w_b = b.shape[-2:]
-    out_h = h_a + h_b - 1
-    out_w = w_a + w_b - 1
+    # choose method: as of now, the choice is simply linked to the tensor size
+    if method == 'auto':
+        method = 'direct' if a.numel() * b.numel() < 500 * 500 * 10 * 10 else 'fft'
 
-    b_flipped = torch.flip(b, dims=(-2, -1))
-    A, B = map(lambda x: torch.fft.rfft2(x, s=(out_h, out_w)), (a, b_flipped))
-    out = torch.fft.irfft2(A * B, s=(out_h, out_w))
-    out = torch.nan_to_num(out, nan=1e-6, posinf=1e-6, neginf=1e-6)
+    # cast to float64 to avoid precision loss
+    a_cc, b_cc = map(lambda x: x.to(torch.float64), (a, b))
+
+    if method == 'direct':
+        adapt_to_4d = lambda x: x[None, None, ...] if x.ndim == 2 else x
+        a_cc, b_cc = map(adapt_to_4d, (a_cc, b_cc))
+        h_a, w_a = a_cc.shape[-2:]
+        h_b, w_b = b_cc.shape[-2:]
+        # use `conv2d` because it actually applies cross-correlation + compute full cc
+        # https://stackoverflow.com/questions/42970009/performing-convolution-not-cross-correlation-in-pytorch
+        out = F.conv2d(a_cc, b_cc, padding=(h_b - 1, w_b - 1))
+        out = out[0, 0] if a.ndim == 2 else out
+    else:
+        h_a, w_a = a_cc.shape[-2:]
+        h_b, w_b = b_cc.shape[-2:]
+        out_h = h_a + h_b - 1
+        out_w = w_a + w_b - 1
+    
+        b_cc_flip = torch.flip(b_cc, dims=(-2, -1))
+        A, B = map(lambda x: torch.fft.rfft2(x, s=(out_h, out_w)), (a_cc, b_cc_flip))
+        out = torch.fft.irfft2(A * B, s=(out_h, out_w))
+        out = torch.nan_to_num(out, nan=0.0, posinf=0.0, neginf=0.0)
 
     if mode == 'same':
+        # NOTE: this is necessary (if direct method) because cc
+        #       performed with even kernels have problematic padding
+        # https://docs.pytorch.org/docs/2.14/generated/torch.nn.functional.conv2d.html
         hstart, wstart = (h_b - 1) // 2, (w_b - 1) // 2
         out = out[..., hstart : hstart + h_a, wstart : wstart + w_a]
 
     return out
+
+
+# def _correlate(a: Tensor, b: Tensor, mode: Literal['full', 'same'] = 'full') -> Tensor:
+#     """
+#     Cross-correlation equivalent to `scipy.signal.correlate`.
+#     Assumes input tensors to be 2D or 4D shaped.
+#     """
+#     _supp_ndim = [2, 4]
+#     if (a.ndim not in _supp_ndim) or (b.ndim not in _supp_ndim):
+#         raise ValueError(f'Input tensors must be 2D or 4D, got {a.ndim}D and {b.ndim}D.')
+    
+#     _supp_mode = ['full', 'same']
+#     if mode not in _supp_mode:
+#         raise ValueError(f"Invalid mode '{mode}', choose between {_supp_mode}.")
+
+#     adapt_to_4d = lambda x: x[None, None, ...] if x.ndim == 2 else x
+#     a_, b_ = map(adapt_to_4d, (a, b))
+#     _, _, h_a, w_a = a_.shape
+#     _, _, h_b, w_b = b_.shape
+#     # use `conv2d` because it actually applies cross-correlation + compute full cc
+#     # https://stackoverflow.com/questions/42970009/performing-convolution-not-cross-correlation-in-pytorch
+#     out = F.conv2d(a_, b_, padding=(h_b - 1, w_b - 1))
+
+#     # extract output with same shape as input for 'same' mode
+#     # NOTE: this is necessary because cc performed with even kernels have problematic padding.
+#     #       In `torch` conv operations are usually performed with odd kernels, but here the
+#     #       bulk, mask and decoder tensors have even spatial shapes
+#     # https://docs.pytorch.org/docs/2.14/generated/torch.nn.functional.conv2d.html
+#     if mode == 'same':
+#         hstart, wstart = (h_b - 1) // 2, (w_b - 1) // 2
+#         out = out[..., hstart : hstart + h_a, wstart : wstart + w_a]
+
+#     return out[0, 0] if a.ndim == 2 else out
+
+
+# def _fftcorrelate(
+#     a: Tensor,
+#     b: Tensor,
+#     mode: Literal['full', 'same'] = 'full',
+# ) -> Tensor:
+#     """
+#     FFT-based cross-correlation equivalent to `scipy.signal.correlate`.
+
+#     NOTE: this version exists because the linear variant raise a RuntimeError due to
+#           problems in allocating memory (for CPU, while extremely slow for GPU).
+#     """    
+#     _supp_mode = ['full', 'same']
+#     if mode not in _supp_mode:
+#         raise ValueError(f"Invalid mode '{mode}', choose between {_supp_mode}.")
+
+#     h_a, w_a = a.shape[-2:]
+#     h_b, w_b = b.shape[-2:]
+#     out_h = h_a + h_b - 1
+#     out_w = w_a + w_b - 1
+
+#     b_flipped = torch.flip(b, dims=(-2, -1))
+#     A, B = map(lambda x: torch.fft.rfft2(x, s=(out_h, out_w)), (a, b_flipped))
+#     out = torch.fft.irfft2(A * B, s=(out_h, out_w))
+#     out = torch.nan_to_num(out, nan=1e-6, posinf=1e-6, neginf=1e-6)
+
+#     if mode == 'same':
+#         hstart, wstart = (h_b - 1) // 2, (w_b - 1) // 2
+#         out = out[..., hstart : hstart + h_a, wstart : wstart + w_a]
+
+#     return out
 
 
 @dataclass(frozen=True)
@@ -626,14 +695,14 @@ class CodedMaskCamera:
 
     @cached_property
     def mask(self) -> Tensor:
-        """2D array representing the coded mask pattern."""
+        """2D tensor representing the coded mask pattern."""
         mask = torch.from_numpy(self.get_mask())
         mask = _upscale(mask, *self.upscale_f)
         return mask.to(self.device)
 
     @cached_property
     def decoder(self) -> Tensor:
-        """2D array representing the mask pattern used for decoding."""
+        """2D tensor representing the mask pattern used for decoding."""
         decoder = torch.from_numpy(self.get_decoder())
         decoder = _upscale(decoder, *self.upscale_f)
         return decoder.to(self.device)
@@ -641,7 +710,7 @@ class CodedMaskCamera:
     @cached_property
     def bulk(self) -> Tensor:
         """
-        2D array representing the bulk (sensitivity) array of the mask.
+        2D tensor representing the bulk (sensitivity) array of the mask.
         """
         bulk = torch.from_numpy(self.get_bulk())
         bulk[~torch.isclose(bulk, torch.zeros_like(bulk))] = 1
@@ -658,8 +727,8 @@ class CodedMaskCamera:
 
     @cached_property
     def balancing(self) -> Tensor:
-        """2D array representing the correlation between decoder and bulk patterns."""
-        return _correlate(self.decoder, self.bulk)
+        """2D tensor representing the correlation between decoder and bulk patterns."""
+        return _correlate(self.decoder, self.bulk, mode='full', method='fft')
 
 
 def codedmask(
@@ -742,9 +811,33 @@ def decode(camera: CodedMaskCamera, detector: Tensor) -> Tensor:
     Returns:
         out (Tensor): Balanced cross-correlation sky image.
     """
-    cc = _correlate(camera.decoder, detector, mode="full")
+    if detector.ndim != 2:
+        raise ValueError(f'Invalid detector shape {detector.shape}, must be 2D (H, W).')
+    cc = _correlate(camera.decoder, detector, mode='full', method='fft')
     sum_det, sum_bulk = map(torch.sum, (detector, camera.bulk))
     cc_bal = cc - camera.balancing * sum_det / sum_bulk
+    return cc_bal
+
+
+def decode_batch(camera: CodedMaskCamera, detector: Tensor) -> Tensor:
+    """
+    Reconstructs balanced sky image from detectors batch using cross-correlation.
+
+    Args:
+        camera (CodedMaskCamera): Instance containing mask and decoder patterns.
+        detector (Tensor): 4D tensor of detector counts.
+
+    Returns:
+        out (Tensor): Balanced cross-correlation sky image batch.
+    """
+    if detector.ndim != 4:
+        raise ValueError(f'Invalid detector shape {detector.shape}, must be 4D (B, C, H, W).')
+    dec, bal = map(
+        lambda x: torch.cat(detector.shape[0] * [x[None, None, ...]], dim=0), (camera.decoder, camera.balancing),
+    )
+    cc = _correlate(dec, detector, mode='full', method='fft')
+    sum_det, sum_bulk = detector.sum(dim=(-2, -1), keepdim=True), camera.bulk.sum()
+    cc_bal = cc - bal * sum_det / sum_bulk
     return cc_bal
 
 
