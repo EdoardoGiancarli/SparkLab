@@ -52,6 +52,8 @@ def assert_tensor_allclose(residuals: Tensor, eps: float = 1e-8, msg: Optional[s
     return
 
 
+
+
 class TestCustomFuncs(TestCase):
     """
     Test class for the `_bisect_left`, `_bisect_right`, `_bisect_interval`, `_upscale`, `_shift`, `_correlate` funcs.
@@ -224,6 +226,31 @@ class TestCMC(TestCase):
         assert_tensor_allclose(self.wfm.bulk - torch.from_numpy(self.wfm_bm.bulk))
         return
 
+    def test_bulk_artefact_mask(self):
+        """Tests the `_mask_detector_artefacts` func."""
+        wfm = codedmask(maskpath, 1, 1, hide_bulk_els_x=0.5, hide_bulk_els_y=1.0)
+        # with a mask [0.5 x 1.0] mm along the (fine, coarse) axes we are going to
+        # mask 2 rows/cols of elements along both directions (@ upx=1, upy=1)
+        mock_bulk = torch.ones((10, 10), dtype=torch.float32)
+        expected = torch.tensor(
+            [
+                [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                [0, 0, 1, 1, 1, 1, 1, 1, 0, 0],
+                [0, 0, 1, 1, 1, 1, 1, 1, 0, 0],
+                [0, 0, 1, 1, 1, 1, 1, 1, 0, 0],
+                [0, 0, 1, 1, 1, 1, 1, 1, 0, 0],
+                [0, 0, 1, 1, 1, 1, 1, 1, 0, 0],
+                [0, 0, 1, 1, 1, 1, 1, 1, 0, 0],
+                [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+            ],
+            dtype=mock_bulk.dtype,
+        )
+        masked_mock_bulk = wfm._mask_detector_artefacts(mock_bulk)
+        assert_tensor_allclose(masked_mock_bulk - expected)
+        return
+
     def test_balancing(self):
         """Tests the instrumental balancing tensor initilisation (vals, shape, gradient)."""
         self.assertFalse(self.wfm.balancing.requires_grad)
@@ -240,6 +267,7 @@ class TestCMC(TestCase):
         else:
             print('\n[INFO] cuda not available, skipped `test_move_to_device()` in TestCMC.\n')
         return
+
 
 
 
@@ -276,6 +304,7 @@ class TestCAIFuncs(TestCase):
             assert_tensor_allclose(sky - sky_batch[idx, 0])
 
         return
+
 
 
 
