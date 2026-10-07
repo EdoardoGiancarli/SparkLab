@@ -44,13 +44,16 @@ __all__ = [
     'codedmask',
     # data CAI operations
     'decode',
+    'decode_batch',
     'solid_angle',          # TBD
     'solid_angle_profile',  # TBD
     'variance',             # TBD
     'snratio',              # TBD
-    # coords conversion
+    # tensor operations
     'argmax',
     'find_boxmax',
+    'crop',
+    # coords conversion
     'shift2pos',
 ]
 
@@ -236,14 +239,16 @@ def load_from_fits(filepath: str | Path) -> tuple:
         ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠉⠀⠀⠹⣄⣀⡤⠋⠀⠀⠀⠀⠀⠀⠀⠀
 """
 
-def _bisect_right(x: Tensor, value: int | float) -> int:
+def _bisect_right(x: Tensor, value: int | float | Tensor) -> int | Tensor:
     """Implementation of `bisect.bisect_right` for torch tensors."""
-    return torch.searchsorted(x, value, side='right').item()
+    out = torch.searchsorted(x, value, side='right')
+    return out.item() if isinstance(value, (int, float)) else out
 
 
-def _bisect_left(x: Tensor, value: int | float) -> int:
+def _bisect_left(x: Tensor, value: int | float | Tensor) -> int | Tensor:
     """Implementation of `bisect.bisect_left` for torch tensors."""
-    return torch.searchsorted(x, value, side='left').item()
+    out = torch.searchsorted(x, value, side='left')
+    return out.item() if isinstance(value, (int, float)) else out
 
 
 def _bisect_interval(x: Tensor, start: float, stop: float) -> tuple[int, int]:
@@ -765,7 +770,7 @@ def decode_batch(camera: CodedMaskCamera, detector: Tensor) -> Tensor:
     if detector.ndim != 4:
         raise ValueError(f'Invalid detector shape {detector.shape}, must be 4D (B, C, H, W).')
     dec, bal = map(
-        lambda x: torch.cat(detector.shape[0] * [x[None, None, ...]], dim=0), (camera.decoder, camera.balancing),
+        lambda x: x[None, None, ...].expand(detector.shape[0], 1, -1, -1), (camera.decoder, camera.balancing),
     )
     cc = _correlate(dec, detector, mode='full', method='fft')
     sum_det, sum_bulk = detector.sum(dim=(-2, -1), keepdim=True), camera.bulk.sum()
@@ -871,17 +876,97 @@ def find_boxmax(
     return pos, val
 
 
-def shift2pos(camera: CodedMaskCamera, shift_x: float, shift_y: float) -> tuple[int, int]:
+def crop(
+    image: Tensor,
+    pos: tuple[int, int],
+    crp: tuple[int, int],
+    strict: bool = True,
+) -> Tensor:
+    """
+    Crops tensor spatial dimensions at given position and with given cropping.
+
+    Args:
+        image (Tensor):
+            Input tensor to crop.
+        pos (tuple[int, int]):
+            Center position for cropping.
+        crp (tuple[int, int]):
+            Size of the cropping along (y, x).
+        strict (bool, optional (default=`True`)):
+            If `False` allows for the cropping to be adapted wrt the tensor edges
+            when they are exceeded.
+    
+    Returns:
+        output (Tensor):
+            Cropped tensor. The cut is performed by centering the cropped tensor,
+            so that the final shape is `2 * crp + 1` along the two axes.
+    
+    Raises:
+        ValueError: If `crp` is not a positive int tuple
+        IndexError: If `crp` wrt indexes exceeds edges (only if `strict` is `True`)
+    
+    ## Notes:
+        - Negative indexes for `pos` are allowed.
+    """
+    *_, n, m = image.shape
+    y, x = pos
+    cy, cx = crp
+    boundary_x = (
+        ((0 <= x - cx) and (x + cx < m - 1)) or ((cx - x <= m - 1) and (x + cx < 0))
+    )
+    boundary_y = (
+        ((0 <= y - cy) and (y + cy < n - 1)) or ((cy - y <= n - 1) and (y + cy < 0))
+    )
+
+    if (cy <= 0) or (cx <= 0):
+        raise ValueError("Cropping must be a tuple of positive integers.")
+    if not (boundary_x and boundary_y):
+        if not strict:
+            # the crop extends up to the 2nd row/col from top/bottom/left/right
+            if not boundary_x:
+                cx = min(x - 2, m - x - 3) if x > 0 else min(x + m + 2, -x - 2)
+            if not boundary_y:
+                cy = min(y - 2, n - y - 3) if y > 0 else min(y + n + 2, -y - 2)
+            print(f"Cropping {crp} at pos {pos} exceeds array edges, new cropping: {cy, cx}.")
+        else:
+            raise IndexError(f"Cropping {crp} at pos {pos} exceeds array edges.")
+    
+    return image[..., y - cy : y + cy + 1, x - cx : x + cx + 1]
+
+"""
+            ⠀⠀⠀⠀⠀⣠⣴⣾⣶⣿⣿⣶⣶⣶⣿⡟⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
+            ⠀⠀⠀⣠⣼⣿⣿⣿⣋⣠⣿⣿⣿⣿⣿⡖⢶⣶⣤⣤⣀⣤⣶⣿⣷⡤⠶⢦⡀⠀
+            ⠀⠀⣤⣾⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡿⠀⠘⢿⣿⣿⣿⡿⢁⣾⡀⠀⠀⣷⠀
+            ⠀⠀⠻⣿⠟⠛⠛⠻⠟⠛⠋⢹⣿⣿⣿⢣⡆⠀⠈⠛⠛⠋⠀⢻⣿⣿⣶⠟⣻⣦
+            ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⢸⣿⣿⢇⣾⠃⠀⣠⣤⣴⣤⣤⣀⠉⠙⢁⣴⡿⠁
+            ⠀⠀⠀⠀⠀⢠⠀⠀⠀⢰⣤⣿⣿⢋⣬⡄⢀⣾⣿⣿⣿⣿⣿⣿⣧⠀⢿⣿⠀⠀
+            ⠀⠀⠀⠀⠀⣠⠻⠿⠿⠿⠿⣛⣵⣿⣿⣧⢸⣿⣿⣿⣿⣿⣿⣿⣿⣄⣼⣿⡇⠀
+            ⠀⠀⠀⠀⣠⣿⡀⢸⣿⣿⣿⣿⣿⣿⣿⠿⠆⠻⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣷⠀
+            ⢀⣀⣴⣾⣿⣿⡇⣬⣭⣭⣭⣭⣭⣶⣶⣿⣷⡄⢈⣻⣿⣿⣿⣿⣿⣿⣿⣿⣿⠀
+            ⠰⢾⣿⣿⣿⣿⡇⣿⣿⣿⣿⣿⣿⣿⣿⣿⡟⢐⣛⡻⣿⣿⣿⣿⣿⣿⠻⣿⣿⠀
+            ⠀⠁⠀⣠⣶⣿⣷⢸⣿⣿⣿⣿⣿⣿⣿⡿⠿⠛⠋⡵⠿⢿⣿⣿⣿⢟⣄⢹⡏⠀
+            ⠀⠀⣰⣿⣿⣿⣿⣆⢲⣶⣶⣶⣶⣶⣶⣶⣿⢇⣷⣾⣿⡏⣟⣯⣶⣿⣿⡾⠀⠀
+            ⠀⠀⣿⣿⣿⣿⣿⣿⣦⠹⣿⣿⣿⣿⣿⣿⣿⡜⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⡶⠋
+            ⠀⠀⠘⣿⣿⣿⣿⣿⣿⣷⣬⠉⠿⣛⣻⣿⣯⣥⣹⣿⣿⣿⣿⣿⣿⣿⣿⣿⠀⠀
+            ⠀⣠⣶⣿⣿⣿⣿⣿⣿⠿⠿⠦⠄⠀⠀⠉⠉⠉⠀⠹⣿⣿⣿⣿⣿⣿⣿⣿⠀⠀
+            ⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠹⠿⠛⠿⣿⠟⠛⠛⠀⠀
+"""
+
+def shift2pos(
+    camera: CodedMaskCamera,
+    shift_x: float | Tensor,
+    shift_y: float | Tensor,
+) -> tuple[int, int] | tuple[Tensor, Tensor]:
     """
     Convert continuous sky-shift coordinates to nearest discrete pixel indices.
 
     Args:
         camera (CodedMaskCamera): Instance containing binning information.
-        shift_x (float): x-coordinate in sky-shift space (mm).
-        shift_y (float): y-coordinate in sky-shift space (mm).
+        shift_x (float | Tensor): x-coordinate in sky-shift space (mm).
+        shift_y (float | Tensor): y-coordinate in sky-shift space (mm).
 
     Returns:
-        out (tuple[int, int]): Sky image grid (row, column) idxs.
+        out (tuple[int, int] | tuple[Tensor, Tensor]): Sky image grid (row, column) idxs.
     """
     return (
         _bisect_right(camera.bins_sky.y, shift_y) - 1,
