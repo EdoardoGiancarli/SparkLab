@@ -72,6 +72,25 @@ class TestCustomFuncs(TestCase):
         self.assertEqual(result, expected)
         return
 
+    def test_bisect_fns_vectorisation(self):
+        """Test func for `_bisect_left`, `_bisect_right` vectorisation wrt `value`."""
+        x = torch.tensor(
+          # [ 0,  1,  2,  3,  4, 5, 6, 7, 8, 9, 10]   to see where to put the idxs, lol
+            [-5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5],
+            dtype=torch.float32,
+        )
+        value = torch.tensor(
+            [2.3, -6.3, 1.3, 0.3, 8.3],
+            dtype=x.dtype,
+        )
+        # bisect right
+        expected = torch.tensor([8, 0, 7, 6, 11])
+        assert_tensor_allclose(_bisect_right(x, value) - expected)
+        # bisect left
+        expected = torch.tensor([8, 0, 7, 6, 11])
+        assert_tensor_allclose(_bisect_left(x, value) - expected)
+        return
+
     def test_bisect_interval(self):
         """Test func for `_bisect_interval`."""
         val = 10.0
@@ -346,6 +365,11 @@ class TestHelperFuncs(TestCase):
         self.assertEqual(find_boxmax(a, centre=centre, boxsize=(2, 2)), ((2, 5), 100))
         centre = (3, 2)
         self.assertEqual(find_boxmax(a, centre=centre, boxsize=(3, 3)), ((4, 1), 105))
+        return
+
+    def test_crop(self):
+        """Tests the `crop` func."""
+        print('[test] to implement `crop` tests.')
         return
 
 
