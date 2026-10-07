@@ -15,6 +15,7 @@ import wandb
 
 import spark as pk
 
+from pkdev.camera import CodedMaskCamera, codedmask
 from pkdev.dataset import get_dataset, get_dataloaders
 from pkdev.model import exists, Unet, JointDiffusionLoss
 from pkdev.sampling import DPMSolverPP2MSampler
@@ -52,13 +53,28 @@ def parse_args() -> argparse.Namespace:
     data_grp.add_argument("--batch_size", type=int, default=32, help="Batch size for training and validation (default: %(default)s).")
     data_grp.add_argument("--valid_size", type=float, default=0.2, help="Fraction of data to use for validation (default: %(default)s).")
     data_grp.add_argument("--datasetID", type=str, default='srcIROS_jointdiffusion.pt', help="Dataset ID (default: %(default)s).")
-    data_grp.add_argument("--reshape_sgs_to", type=int, nargs=2, default=None, help="Shadowgrams reshaping dims (`[H, W]`) (default: %(default)s).")
+    data_grp.add_argument(
+        "--reshape_sgs_to", type=int, nargs=2, default=None, help="Shadowgrams reshaping dims (`[H, W]`) (default: %(default)s)."
+    )
     data_grp.add_argument("--reshape_mode", type=str, default='nearest', help="Shadowgrams interpolation mode (default: %(default)s).")
 
     diff_grp = parser.add_argument_group("Diffusion Noise Scheduler")        # -------------------------
     diff_grp.add_argument("--beta_start", type=float, default=1e-4, help="Noise schedule start value (default: %(default)s).")
     diff_grp.add_argument("--beta_end", type=float, default=0.02, help="Noise schedule end value (default: %(default)s).")
     diff_grp.add_argument("--timesteps", type=int, default=1000, help="Number of diffusion timesteps (default: %(default)s).")
+
+    data_grp = parser.add_argument_group("Coded-Mask Camera Configuration")  # -------------------------
+    data_grp.add_argument(
+        "--mask_pattern", type=str, default='mask_NTHT_20260129_CORRECTED.fits', help="Coded-mask file with camera specifics (default: %(default)s)."
+    )
+    data_grp.add_argument(
+        "--wfm_upfine", type=int, default=2,
+        help="Upsampling factor for digital binning structure along the camera FINE axis (default: %(default)s).",
+    )
+    data_grp.add_argument(
+        "--wfm_upcoarse", type=int, default=1,
+        help="Upsampling factor for digital binning structure along the camera COARSE axis (default: %(default)s).",
+    )
 
     wnb_grp = parser.add_argument_group("WnB Logging")                       # -------------------------
     wnb_grp.add_argument("--project", type=str, default='Src-Joint-Diffusion', help="WnB project name (default: %(default)s).")
@@ -121,18 +137,41 @@ def parse_args() -> argparse.Namespace:
     
     return args
 
-def select_dirpaths() -> tuple[Path, Path]:
-    """Returns dirpaths to dataset(s) and model checkpoints, based on OS."""
+def _select_os() -> tuple[str, Path]:
+    """Selects OS on which task are operated."""
     machine = {
-        'win': Path('/mnt/d/PhD_AASS/Coding/IROS_Diffusion'),
-        'deb': Path('/mnt/dbb8f47e-da06-47bf-8ef5-038092af70f7/Edos_Magnificent_Manor/PhD_AASS/Coding/IROS_Diffusion'),
-        'quasar': Path('/home/egiancarli/lem-x/IROS_Diffusion'),
+        'win': Path('/mnt/d'),
+        'deb': Path('/mnt/dbb8f47e-da06-47bf-8ef5-038092af70f7'),
+        'quasar': Path('/home/egiancarli'),
     }
-    root = next((p for p in machine.values() if Path(p).is_dir()), None)
+    root = next(((m, p) for m, p in machine.items() if p.is_dir()), None)
+    
     if root is None:
         raise ValueError('A0, ma ndo sei finit*?')
 
-    return root / 'SrcDiffusionDataset', root / 'ModelChkPoints'
+    return root
+
+def select_mask_dirpath() -> Path:
+    """Returns filepath to coded-mask pattern file with camera specifics, based on OS."""
+    paths = {
+        'win': Path('PhD_AASS/Coding/Images_fits'),
+        'deb': Path('Edos_Magnificent_Manor/PhD_AASS/Coding/IROS_Data/Simulations'),
+        'quasar': Path('lem-x/Coding/CameraFiles'),
+    }
+    os_, root = _select_os()
+    dirpath = paths[os_]
+    return root / dirpath
+
+def select_dataset_checkpnt_dirpaths() -> tuple[Path, Path]:
+    """Returns dirpaths to dataset(s) and model checkpoints, based on OS."""
+    paths = {
+        'win': Path('PhD_AASS/Coding/IROS_Diffusion'),
+        'deb': Path('Edos_Magnificent_Manor/PhD_AASS/Coding/IROS_Diffusion'),
+        'quasar': Path('lem-x/IROS_Diffusion'),
+    }
+    os_, root = _select_os()
+    dirpath = paths[os_]
+    return root / dirpath / 'SrcDiffusionDataset', root / dirpath / 'ModelChkPoints'
 
 
 # `wandb` wrappers
@@ -151,6 +190,7 @@ def wnb_login(filepath: Optional[str | Path] = None, **kwargs) -> None:
 def run_w_wnb(
     project: str,
     runID: str,
+    camera: CodedMaskCamera,
     params: TrainParams,
     epochs: int,
     learning_rate: float,
@@ -180,6 +220,7 @@ def run_w_wnb(
     with wandb.init(**wnb_factory) as logger:
         try:
             results: TrainResults = train_model(
+                camera=camera,
                 params=params,
                 epochs=epochs,
                 learning_rate=learning_rate,
@@ -207,7 +248,13 @@ def run_w_wnb(
 
 def train():
     args = parse_args()
-    dspath, chkpntpath = select_dirpaths()
+    maskpath = select_mask_dirpath()
+    dspath, chkpntpath = select_dataset_checkpnt_dirpaths()
+
+    # define coded-mask camera obj
+    wfm = codedmask(
+        maskpath / args.mask_pattern, upscale_x=args.wfm_upfine, upscale_y=args.wfm_upcoarse,
+    )
 
     # config dataset + dataloaders
     ds_processed = dspath / f'processed/{args.datasetID}'
@@ -240,7 +287,7 @@ def train():
     tpars_factory = dict(
         model=model,
         sampler=DPMSolverPP2MSampler(betas, pred_type='v'),
-        loss=JointDiffusionLoss(),
+        loss=JointDiffusionLoss(wfm),
         optimiser=opt.Adam,
         lr_scheduler=partial(
             opt.lr_scheduler.ReduceLROnPlateau, patience=args.lr_patience, factor=args.lr_factor,
@@ -264,6 +311,7 @@ def train():
     results: TrainResults = run_w_wnb(
         project=args.project,
         runID=args.runID,
+        camera=wfm,
         params=tpars,
         epochs=args.epochs,
         learning_rate=args.lr,
@@ -303,6 +351,9 @@ def train():
                 'patience_bestmodel': args.patience_bestmodel,
                 'check_training_every': args.check_training_every,
                 'patience_train': args.patience_train,
+
+                'camera_binning_upsampling': (wfm.upscale_x, wfm.upscale_y),
+                'camera_bulk_artefact_mask': (wfm.hide_bulk_els_x, wfm.hide_bulk_els_y),
             },
         }
     )
