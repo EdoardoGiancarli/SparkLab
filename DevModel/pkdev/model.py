@@ -21,6 +21,13 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.types import Tensor
 
+from .camera import (
+    CodedMaskCamera,
+    decode_batch,
+    find_boxmax,
+    shift2pos,
+    crop,
+)
 from .modules import (
     exists,
     Downsample,
@@ -425,19 +432,33 @@ class JointDiffusionLoss(nn.Module):
     Loss for source shadowgram and parameters joint diffusion. The image components loss
     is computed using MSE loss; the params loss is computed with Smooth-L1 (Huber) Loss.
 
+    The loss also account for a PINN term, in which the generated shadowgrams are first
+    decoded and than compared to the observed source PSFs, so to introduce an estimate
+    of the coded-aperture imaging process significance.
+    The PINN term can be switched off when initialising `JointDiffusionLoss`.
+
     The total loss can be computed:
         * by adding img and params individual losses, with the params loss weighted by
-          `lambda_param` to prevent diluition from large img loss values;
+          `lambda_param` to prevent diluition from large img loss values, and with the
+          PINN loss weighted by `lambda_pinn`;
         * by using [homoscedastic uncertainty weighting](https://arxiv.org/abs/1705.07115)
           allowing the network to dinamically learn img/params losses relative weights.
 
     When called, the func returns the total loss and both img/params individual losses.
 
     Args:
+        camera (CodedMaskCamera):
+            Instance containing coded-mask camera specifics.
         lambda_params (float, optional):
             Hyper-parameter for source params loss modulation wrt img loss. Defaults to `2.0`.
         beta (float, optional):
             Hyper- `beta` parameter in Smooth-L1 Loss for source params loss. Defaults to `1.0`.
+        include_pinn_term (bool, optional):
+            Includes PINN term in loss computation, representing how compatible the generated
+            shadowgrams are with respect to the conditional source PSFs extracted from the
+            ground-truth sky images. Defaults to `True`.
+        lambda_pinn (float, optional):
+            Hyper-parameter for PINN loss modulation wrt img loss. Defaults to `0.5`.
         use_homoscedastic_weights (bool, optional):
             Activates loss computation by homoscedastic uncertainty weighting, enabling dynamic
             learning of relative loss weights. Defaults to `False`.
@@ -448,19 +469,54 @@ class JointDiffusionLoss(nn.Module):
     """
     def __init__(
         self,
+        camera: CodedMaskCamera,
         lambda_params: float = 2.0,
         beta: float = 1.0,
+        include_pinn_term: bool = True,
+        lambda_pinn: float = 0.5,
         use_homoscedastic_weights: bool = False,
     ) -> None:
         super().__init__()
+        self.wfm = camera
         self.lambda_params = lambda_params
+        self.lambda_pinn = lambda_pinn if include_pinn_term else None
         self.beta = beta
 
         if use_homoscedastic_weights:
             self.log_var_img = nn.Parameter(torch.zeros())
             self.log_var_pars = nn.Parameter(torch.zeros())
-        
+            self.log_var_pinn = nn.Parameter(torch.zeros()) if include_pinn_term else None
+
         self.use_homoscedastic_weights = use_homoscedastic_weights
+
+    def compute_pinn_term(
+        self,
+        pred_img: Tensor,
+        cond_img: Tensor,
+        cond_pars: Tensor,
+    ) -> Tensor:
+        """
+        Computes physics-informed term for the loss, based on coded-aperture framework.
+        The PINN term account for the decoding of the generated shadowgrams batch, to
+        measure the difference with respect to the extracted source PSF from the sky
+        image batch (which refers to the conditional image in the generative framework).
+        """
+        # crop size from conditional source PSFs
+        *_, c_h, c_w = cond_img
+        cy, cx = c_h // 2, c_w // 2
+
+        # find source PSF peaks for cropping
+        rows, cols = shift2pos(self.wfm, cond_pars[:, 0], cond_pars[:, 1])
+        ...
+
+        # decode generated shadowgrams batch + crop to match SPSF
+        psf_batch = decode_batch(self.wfm, pred_img)[
+            ..., rows - cy : rows + cy + 1, cols - cx : cols + cx + 1,
+        ]
+        # compute pinn term
+        loss_pinn = F.mse_loss(psf_batch, cond_img, reduction='none')
+        
+        return loss_pinn
 
     def forward(
         self,
@@ -468,7 +524,9 @@ class JointDiffusionLoss(nn.Module):
         trg_img: Tensor,
         pred_params: Tensor,
         trg_params: Tensor,
-    ) -> tuple[Tensor, Tensor, Tensor]:
+        cond_img: Tensor,
+        cond_pars: Tensor,
+    ) -> tuple[Tensor, Tensor, Tensor, Tensor]:
         get_mean_persample_perbatch = lambda x: x.mean(dim=1).mean()
 
         # compute img loss
@@ -479,16 +537,24 @@ class JointDiffusionLoss(nn.Module):
             pred_params, trg_params, beta=self.beta, reduction='none',
         )
         loss_pars = get_mean_persample_perbatch(loss_pars)
+        # compute pinn loss
+        if any(map(exists, (self.log_var_pinn, self.lambda_pinn))):
+            loss_pinn = self.compute_pinn_term(pred_img, cond_img, cond_pars)
+            loss_pinn = get_mean_persample_perbatch(loss_pinn)
 
         if self.use_homoscedastic_weights:
             total_loss = (
                 0.5 * torch.exp(-self.log_var_img) * loss_img + 0.5 * self.log_var_img + \
                 0.5 * torch.exp(-self.log_var_pars) * loss_pars + 0.5 * self.log_var_pars
             )
+            if exists(self.log_var_pinn):
+                total_loss += 0.5 * torch.exp(-self.log_var_pinn) * loss_pinn + 0.5 * self.log_var_pinn
         else:
             total_loss = loss_img + self.lambda_params * loss_pars
+            if exists(self.lambda_pinn):
+                total_loss += self.lambda_pinn * loss_pinn
         
-        return total_loss, loss_img, loss_pars
+        return total_loss, loss_img, loss_pars, loss_pinn
 
 
 # end
