@@ -25,6 +25,7 @@ from wandb import Run
 
 import spark as pk
 
+from .camera import CodedMaskCamera
 from .modules import exists
 from .sampling import Sampler
 
@@ -37,6 +38,7 @@ __all__ = [
     'execute_every',
     'log_with_wandb',
     'config_training',
+    'mask_sdd_zero_response_area',
     'train_model',
 ]
 
@@ -240,7 +242,15 @@ def config_training(
     return tp
 
 
+def mask_sdd_zero_response_area(camera: CodedMaskCamera, detector: Tensor) -> Tensor:
+    """Corrects given detector image for instrumental detector plane zero-response area."""
+    sdd_active_area = (camera.bulk > 0)
+    sdd_active_area = sdd_active_area if detector.ndim == 2 else sdd_active_area[None, None, ...]
+    return detector * sdd_active_area
+
+
 def train_model(
+    camera: CodedMaskCamera,
     params: TrainParams,
     epochs: int,
     learning_rate: float,
@@ -319,7 +329,8 @@ def train_model(
             optimiser.zero_grad()
             with autocast(device_type=device_type):
                 v_img_pred, v_pars_pred = model(x_t_img, x_t_pars, t, c_img, c_pars, **model_kws)
-                tot_loss_val, *_ = loss_fn(v_img_pred, v_img_trg, v_pars_pred, v_pars_trg)
+                v_img_pred = mask_sdd_zero_response_area(camera, v_img_pred)
+                tot_loss_val, *_ = loss_fn(v_img_pred, v_img_trg, v_pars_pred, v_pars_trg, c_img, c_pars)
 
             scaler.scale(tot_loss_val).backward()
             scaler.step(optimiser)
@@ -364,7 +375,8 @@ def train_model(
     
                 with autocast(device_type=device_type):
                     v_img_pred, v_pars_pred = model(x_t_img, x_t_pars, t, c_img, c_pars, **model_kws)
-                    tot_loss_val, *_ = loss_fn(v_img_pred, v_img_trg, v_pars_pred, v_pars_trg)
+                    v_img_pred = mask_sdd_zero_response_area(camera, v_img_pred)
+                    tot_loss_val, *_ = loss_fn(v_img_pred, v_img_trg, v_pars_pred, v_pars_trg, c_img, c_pars)
     
                 if tot_loss_val.isnan():
                     warnings.warn(f'Valid loss NaN @ E: {epoch}, B: {batch}')
