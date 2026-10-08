@@ -850,7 +850,7 @@ def find_boxmax(
     boxsize: tuple[int, int] = (5, 5),
 ) -> tuple[tuple[int, int], int | float]:
     """
-    Finds the argmax within given box of the input 2D tensor.
+    Finds the argmax within given box of the input tensor.
     Box is resized if exceeds tensor spatial boundaries.
 
     Args:
@@ -870,9 +870,9 @@ def find_boxmax(
     u, v = boxsize
     rcut = slice(max(0, p - u), min(p + u + 1, a))
     ccut = slice(max(0, q - v), min(q + v + 1, b))
-    n, m = argmax(x[rcut, ccut])
+    n, m = argmax(x[..., rcut, ccut])
     pos = (max(0, p - u) + n, max(0, q - v) + m)
-    val = x[*pos]
+    val = x[..., *pos]
     return pos, val
 
 
