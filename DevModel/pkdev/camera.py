@@ -53,6 +53,7 @@ __all__ = [
     'argmax',
     'find_boxmax',
     'crop',
+    'crop_batch',
     # coords conversion
     'shift2pos',
 ]
