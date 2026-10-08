@@ -529,7 +529,7 @@ class JointDiffusionLoss(nn.Module):
         #       image batch (which refers to the conditional image in the generative framework)
         # NOTE: the sky-decoding process satisfy the loss differentiability requirements, as
         #       it consists of a cross-correalation and a weighted shift (linear operations)
-        loss_pinn = None
+        loss_pinn: Optional[Tensor] = None
         if self.include_pinn_term:
             decoded_psf = self.extract_gen_src_psf(pred_img, cond_img, cond_pars)
             loss_pinn = F.mse_loss(decoded_psf, cond_img, reduction='mean')
