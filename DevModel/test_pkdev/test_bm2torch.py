@@ -42,6 +42,8 @@ from pkdev.camera import (
     decode_batch,
     argmax,
     find_boxmax,
+    crop,
+    crop_batch,
 )
 
 from .assets import maskpath
@@ -332,7 +334,8 @@ class TestHelperFuncs(TestCase):
     Test class for additional/helper funcs.
     """
     def setUp(self):
-        pass
+        self.img = torch.arange(100, dtype=torch.float32).view(10, 10)
+        self.batch_img = torch.arange(3 * 2 * 20 * 20, dtype=torch.float32).view(3, 2, 20, 20)
 
     def test_argmax(self):
         """Tests the `argmax` func."""
@@ -367,9 +370,84 @@ class TestHelperFuncs(TestCase):
         self.assertEqual(find_boxmax(a, centre=centre, boxsize=(3, 3)), ((4, 1), 105))
         return
 
-    def test_crop(self):
-        """Tests the `crop` func."""
-        print('[test] to implement `crop` tests.')
+    def test_crop_standard_centre(self):
+        """Test `crop` func: valid center crop and check returned values and shape."""
+        cropped = crop(self.img, pos=(5, 5), crp=(2, 3))
+        self.assertEqual(cropped.shape, (5, 7))
+        self.assertEqual(cropped[2, 3].item(), 55.0)
+        return
+
+    def test_crop_boundary(self):
+        """Test `crop` func: touching bottom-right edge."""
+        cropped = crop(self.img, pos=(8, 7), crp=(1, 2))
+        self.assertEqual(cropped.shape, (3, 5))
+        self.assertEqual(cropped[-1, -1].item(), 99.0)
+        return
+
+    def test_crop_neg_idx(self):
+        """Test `crop` func: negative position indices."""
+        cropped = crop(self.img, pos=(-2, -2), crp=(1, 1))
+        self.assertEqual(cropped.shape, (3, 3))
+        self.assertEqual(cropped[1, 1].item(), 88.0)
+        return
+
+    def test_crop_adapt_size(self):
+        """Test `crop` func: adapt crop size."""
+        cropped = crop(self.img, pos=(1, 1), crp=(3, 3), strict=False)
+        # @ pos=(1, 1) the crop size is reduced to (1, 1), final shape is (3, 3)
+        self.assertEqual(cropped.shape, (3, 3))
+        return
+
+    def test_crop_errors(self):
+        """Test `crop` func errors."""
+        # strict mode + out-of-bounds crop size
+        with self.assertRaises(IndexError):
+            crop(self.img, pos=(1, 1), crp=(3, 3), strict=True)
+        # crop size <= 0
+        with self.assertRaises(ValueError):
+            crop(self.img, pos=(5, 5), crp=(0, 2))
+        return
+
+    def test_crop_batch_pos_input(self):
+        """Test `crop_batch` func: centre position input types."""
+        crp = (2, 2)
+
+        # passing `pos` as tuple of tensors
+        pos = (torch.tensor([5, 10, 15]), torch.tensor([5, 10, 15]))
+        cropped = crop_batch(self.batch_img, pos=pos, crp=crp)
+        self.assertEqual(cropped.shape, (3, 2, 5, 5))
+
+        # passing `pos` as [B, 2] tensor
+        pos = torch.tensor([[5, 5], [10, 10], [15, 15]])
+        cropped_from_tensor = crop_batch(self.batch_img, pos=pos, crp=crp)
+        assert_tensor_allclose(cropped - cropped_from_tensor)
+
+        return
+
+    def test_crop_batch_logic(self):
+        """Test `crop_batch` func: matching single-tensor crop outputs."""
+        crp = (2, 2)
+        yy = torch.tensor([5, 10, 15])
+        xx = torch.tensor([6, 11, 16])
+        batch_out = crop_batch(self.batch_img, pos=(yy, xx), crp=crp)
+
+        for b in range(len(yy)):
+            single_out = crop(self.batch_img[b], pos=(yy[b].item(), xx[b].item()), crp=crp)
+            assert_tensor_allclose(batch_out[b] - single_out)
+        
+        return
+
+    def test_crop_batch_errors(self):
+        """Test `crop_batch` func errors."""
+        yy = torch.tensor([5, 19, 15])
+        xx = torch.tensor([-5, 10, 15])
+        
+        with self.assertRaises(ValueError):
+            crop_batch(self.batch_img, pos=(yy, xx), crp=(-2, 2)) # negative crop size (-2)
+            crop_batch(self.batch_img, pos=(yy, xx), crp=(2, 2))  # negative `xx` idx (-5)
+        with self.assertRaises(IndexError):
+            crop_batch(self.batch_img, pos=(yy, xx.abs()), crp=(2, 2))  # idx 19 with crp=2 exceeds boundary
+        
         return
 
 

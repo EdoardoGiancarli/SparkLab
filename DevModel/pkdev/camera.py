@@ -538,7 +538,7 @@ class CodedMaskCamera:
         """
         if not any((self.hide_bulk_els_x, self.hide_bulk_els_y)):
             return torch.ones_like(bulk)
-        print(f'UserInfo: using bulk mask of [{self.hide_bulk_els_x} x {self.hide_bulk_els_y}] mm.')
+        print(f'UserInfo: Using bulk mask of [{self.hide_bulk_els_x} x {self.hide_bulk_els_y}] mm.')
         active_elements = (bulk > 0).to(dtype=bulk.dtype)
         npx_to_hide_x = int(self.hide_bulk_els_x * self.upscale_f.x / self.specs.mask_deltax)
         edges_cover_x = (
@@ -887,9 +887,9 @@ def crop(
 
     Args:
         image (Tensor):
-            Input tensor to crop.
+            Input tensor to crop, 2D or higher.
         pos (tuple[int, int]):
-            Center position for cropping.
+            Centre position (y, x) for cropping.
         crp (tuple[int, int]):
             Size of the cropping along (y, x).
         strict (bool, optional (default=`True`)):
@@ -908,30 +908,93 @@ def crop(
     ## Notes:
         - Negative indexes for `pos` are allowed.
     """
-    *_, n, m = image.shape
-    y, x = pos
-    cy, cx = crp
-    boundary_x = (
-        ((0 <= x - cx) and (x + cx < m - 1)) or ((cx - x <= m - 1) and (x + cx < 0))
-    )
-    boundary_y = (
-        ((0 <= y - cy) and (y + cy < n - 1)) or ((cy - y <= n - 1) and (y + cy < 0))
-    )
+    *_, h, w = image.shape
+    crp_y, crp_x = crp
 
-    if (cy <= 0) or (cx <= 0):
+    if (crp_y <= 0) or (crp_x <= 0):
         raise ValueError("Cropping must be a tuple of positive integers.")
-    if not (boundary_x and boundary_y):
+
+    y = pos[0] + h if pos[0] < 0 else pos[0]
+    x = pos[1] + w if pos[1] < 0 else pos[1]
+
+    boundary_y = ((0 <= y - crp_y) and (y + crp_y < h))
+    boundary_x = ((0 <= x - crp_x) and (x + crp_x < w))
+    if not (boundary_y and boundary_x):
+        msg = f'Cropping {crp} at pos {pos} exceeds tensor edges'
         if not strict:
-            # the crop extends up to the 2nd row/col from top/bottom/left/right
-            if not boundary_x:
-                cx = min(x - 2, m - x - 3) if x > 0 else min(x + m + 2, -x - 2)
-            if not boundary_y:
-                cy = min(y - 2, n - y - 3) if y > 0 else min(y + n + 2, -y - 2)
-            print(f"Cropping {crp} at pos {pos} exceeds array edges, new cropping: {cy, cx}.")
+            crp_y, crp_x = min(y, h - y - 1), min(x, w - x - 1)
+            print(f'UserInfo: {msg}, new cropping: {crp_y, crp_x}.')
         else:
-            raise IndexError(f"Cropping {crp} at pos {pos} exceeds array edges.")
+            raise IndexError(msg + '.')
+
+    return image[..., y - crp_y : y + crp_y + 1, x - crp_x : x + crp_x + 1]
+
+
+def crop_batch(
+    image: Tensor,
+    pos: Tensor | tuple[Tensor, Tensor],
+    crp: tuple[int, int],
+) -> Tensor:
+    """
+    Crops tensor spatial dimensions at given position and with given cropping.
+
+    This vectorised version pairs the `i-th` position with `i-th` batch item,
+    keeping a uniform crop size (to fit every cropped sub-tensor within a
+    tensor with same batch, channel dims than `image`, and to allow for fully
+    vectorised GPU indexing and gradient flowing).
+
+    Because this func assumes uniform cropping size, there is no adaptation
+    wrt to the spatial dim edges (see `strict` arg in `crop()` func, above.)
+
+    Args:
+        image (Tensor):
+            Input tensor to crop, 2D or higher.
+        pos (Tensor | tuple[Tensor, Tensor]):
+            Centre position (y, x) for cropping, can be a [B, 2] tensor or a
+            tuple `(yy, xx)` with tensor idxs of shape [B,].
+        crp (tuple[int, int]):
+            Size of the cropping along (y, x).
     
-    return image[..., y - cy : y + cy + 1, x - cx : x + cx + 1]
+    Returns:
+        output (Tensor):
+            Cropped tensor. The cut is performed by centering the cropped tensor,
+            so that the final shape is `2 * crp + 1` along the spatial dims.
+    
+    Raises:
+        ValueError: If `crp` is not a positive int tuple
+        ValueError: If centre positions idxs are not positive
+        IndexError: If `crp` wrt indexes exceeds spatial dim edges
+    
+    ## Notes:
+        - Differently from `crop()`, negative idxs for `pos` are NOT allowed.
+    """
+    device = image.device
+    b, c, h, w = image.shape
+    crp_y, crp_x = crp
+    if crp_y <= 0 or crp_x <= 0:
+        raise ValueError("Cropping must contain positive integers.")
+
+    yy, xx = pos if isinstance(pos, tuple) else (pos[:, 0], pos[:, 1])
+    if (yy < 0).any() or (xx < 0).any():
+        raise ValueError("Centre positions idxs must be positive.")
+    
+    boundary_y = (yy - crp_y >= 0) & (yy + crp_y < h)
+    boundary_x = (xx - crp_x >= 0) & (xx + crp_x < w)
+    if not (boundary_y.all() and boundary_x.all()):
+        raise IndexError("Cropping exceeds tensor edges for one or more items in batch.")
+
+    # create crop grid
+    rows = torch.arange(-crp_y, crp_y + 1, device=device)
+    cols = torch.arange(-crp_x, crp_x + 1, device=device)
+    rows, cols = torch.meshgrid(rows, cols, indexing='ij')
+    rows = yy.view(b, 1, 1, 1) + rows
+    cols = xx.view(b, 1, 1, 1) + cols
+    # define explicitly batch/channel indxs to satisfy torch broadcasting
+    # rules, which is more efficient wrt creating a mask
+    b_idxs = torch.arange(b, device=device).view(b, 1, 1, 1)
+    c_idxs = torch.arange(c, device=device).view(1, c, 1, 1)
+
+    return image[b_idxs, c_idxs, rows, cols]
 
 """
             ⠀⠀⠀⠀⠀⣠⣴⣾⣶⣿⣿⣶⣶⣶⣿⡟⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀
