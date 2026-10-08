@@ -6,7 +6,7 @@ import argparse
 from functools import partial
 from pathlib import Path
 import logging
-from typing import Any, Optional
+from typing import Any, NamedTuple, Optional
 import json
 
 from torch.utils.data import DataLoader
@@ -137,41 +137,43 @@ def parse_args() -> argparse.Namespace:
     
     return args
 
-def _select_os() -> tuple[str, Path]:
-    """Selects OS on which task are operated."""
-    machine = {
-        'win': Path('/mnt/d'),
-        'deb': Path('/mnt/dbb8f47e-da06-47bf-8ef5-038092af70f7'),
-        'quasar': Path('/home/egiancarli'),
-    }
-    root = next(((m, p) for m, p in machine.items() if p.is_dir()), None)
+class DirPaths(NamedTuple):
+    """
+    Parent paths to coded-mask camera file and joint-diffusion
+    parent directory with dataset and checkpoints sub-directories.
+    """
+    camera_path: Path
+    dataset_path: Path
+    chkpnt_path: Path
     
-    if root is None:
-        raise ValueError('A0, ma ndo sei finit*?')
+def select_dirpaths(json_file: Optional[str] = None) -> DirPaths:
+    """
+    Returns container with:
+        * dirpath to coded-mask camera file with specifics and patterns
+        * dirpaths to dataset(s) and model checkpoints
+    based on the OS on which the training is being performed.
 
-    return root
+    If no input `.json` filepath is specified, this func assumes that the
+    target `.json` is contained in the project directory.
+    """
+    def get_path(os_paths: dict[str, str]) -> Path: 
+        dirpath = next((p for p in os_paths.values() if Path(p).is_dir()), None)
+        if dirpath is None:
+            raise ValueError('A0, ma ndo sei finit* (which OS are you using)?')
+        return Path(dirpath)
+    
+    json_file: Path = Path(json_file) if exists(json_file) else Path(__file__).parent / 'dirpaths.json'
+    if not json_file.is_file():
+        raise ValueError(f'Invalid .json filepath {json_file}.')
+    
+    with open(json_file, mode='r') as f:
+        data = json.load(f)
 
-def select_mask_dirpath() -> Path:
-    """Returns filepath to coded-mask pattern file with camera specifics, based on OS."""
-    paths = {
-        'win': Path('PhD_AASS/Coding/Images_fits'),
-        'deb': Path('Edos_Magnificent_Manor/PhD_AASS/Coding/IROS_Data/Simulations'),
-        'quasar': Path('lem-x/Coding/CameraFiles'),
-    }
-    os_, root = _select_os()
-    dirpath = paths[os_]
-    return root / dirpath
-
-def select_dataset_checkpnt_dirpaths() -> tuple[Path, Path]:
-    """Returns dirpaths to dataset(s) and model checkpoints, based on OS."""
-    paths = {
-        'win': Path('PhD_AASS/Coding/IROS_Diffusion'),
-        'deb': Path('Edos_Magnificent_Manor/PhD_AASS/Coding/IROS_Diffusion'),
-        'quasar': Path('lem-x/IROS_Diffusion'),
-    }
-    os_, root = _select_os()
-    dirpath = paths[os_]
-    return root / dirpath / 'SrcDiffusionDataset', root / dirpath / 'ModelChkPoints'
+    camera_path = get_path(data['codedmaskcamera_dirpath'])
+    dataset_path = get_path(data['dataset_dirpath'])
+    chkpnt_path = get_path(data['checkpoint_dirpath'])
+    
+    return DirPaths(camera_path, dataset_path, chkpnt_path)
 
 
 # `wandb` wrappers
@@ -248,21 +250,20 @@ def run_w_wnb(
 
 def train():
     args = parse_args()
-    maskpath = select_mask_dirpath()
-    dspath, chkpntpath = select_dataset_checkpnt_dirpaths()
+    dirpaths = select_dirpaths()
 
     # define coded-mask camera obj
     wfm = codedmask(
-        maskpath / args.mask_pattern, upscale_x=args.wfm_upfine, upscale_y=args.wfm_upcoarse,
+        dirpaths.camera_path / args.mask_pattern, upscale_x=args.wfm_upfine, upscale_y=args.wfm_upcoarse,
     )
 
     # config dataset + dataloaders
-    ds_processed = dspath / f'processed/{args.datasetID}'
+    ds_processed = dirpaths.dataset_path / f'processed/{args.datasetID}'
     if Path(ds_processed).is_file():
         dataset = pk.load_dataset(ds_processed)
     else:
         dataset = get_dataset(
-            dirpath=dspath / 'raw',
+            dirpath=dirpaths.dataset_path / 'raw',
             reshape_sgs_to=tuple(args.reshape_sgs_to),
             reshape_mode=args.reshape_mode,
         )
@@ -298,7 +299,7 @@ def train():
 
     mng_factory = dict(
         log_ckpnt_every=args.log_ckpnt_every,
-        savepath=chkpntpath,
+        savepath=dirpaths.chkpnt_path,
         log_bestmodel_every=args.log_bestmodel_every,
         patience_bestmodel=args.patience_bestmodel,
         check_training_every=args.check_training_every,
@@ -322,7 +323,7 @@ def train():
     # save trained model + results
     pk.save_model(
         state_dict=tpars.model.state_dict(),
-        save_to=chkpntpath / f'../unet_jointdiffusion-{args.runID}.pt',
+        save_to=dirpaths.chkpnt_path / f'../unet_jointdiffusion-{args.runID}.pt',
         info={
             'loss': {
                 'train_loss': results.train_loss,
@@ -352,8 +353,8 @@ def train():
                 'check_training_every': args.check_training_every,
                 'patience_train': args.patience_train,
 
-                'camera_binning_upsampling': (wfm.upscale_x, wfm.upscale_y),
-                'camera_bulk_artefact_mask': (wfm.hide_bulk_els_x, wfm.hide_bulk_els_y),
+                'camera_binning_upsampling_xy': (wfm.upscale_x, wfm.upscale_y),
+                'camera_bulk_artefact_mask_xy': (wfm.hide_bulk_els_x, wfm.hide_bulk_els_y),
             },
         }
     )

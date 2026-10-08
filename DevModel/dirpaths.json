@@ -1,0 +1,17 @@
+{
+    "codedmaskcamera_dirpath": {
+        "win": "/mnt/d/PhD_AASS/Coding/Images_fits",
+        "deb": "/mnt/dbb8f47e-da06-47bf-8ef5-038092af70f7/Edos_Magnificent_Manor/PhD_AASS/Coding/IROS_Data/Simulations",
+        "quasar": "/home/egiancarli/lem-x/Coding/CameraFiles"
+    },
+    "dataset_dirpath": {
+        "win": "/mnt/d/PhD_AASS/Coding/IROS_Diffusion/SrcDiffusionDataset",
+        "deb": "/mnt/dbb8f47e-da06-47bf-8ef5-038092af70f7/Edos_Magnificent_Manor/PhD_AASS/Coding/IROS_Diffusion/SrcDiffusionDataset",
+        "quasar": "/home/egiancarli/lem-x/IROS_Diffusion/SrcDiffusionDataset"
+    },
+    "checkpoint_dirpath": {
+        "win": "/mnt/d/PhD_AASS/Coding/IROS_Diffusion/ModelChkPoints",
+        "deb": "/mnt/dbb8f47e-da06-47bf-8ef5-038092af70f7/Edos_Magnificent_Manor/PhD_AASS/Coding/IROS_Diffusion/ModelChkPoints",
+        "quasar": "/home/egiancarli/lem-x/IROS_Diffusion/ModelChkPoints"
+    }
+}
