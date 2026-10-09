@@ -495,28 +495,43 @@ class JointDiffusionLoss(nn.Module):
 
     def extract_gen_src_psf(
         self,
-        pred_img: Tensor,
+        hat_x_0_img: Tensor,
         cond_img: Tensor,
         cond_pars: Tensor,
     ) -> Tensor:
         """
-        Extracts source PSFs from input generated shadowgrams `pred_img` to compute the
-        loss physics-informed term (PINN), based on the coded-aperture framework.
+        Extracts source PSFs from input generated shadowgrams `hat_x_0_img` to compute
+        the loss physics-informed term (PINN), based on the coded-aperture framework.
+
+        The input signal `hat_x_0_img` is defined in the image-space, so it has to be
+        converted back from model prediction at time-step t.
         """
         *_, c_h, c_w = cond_img.shape
-        psf_batch = decode_batch(self.wfm, pred_img)
+        psf_batch = decode_batch(self.wfm, hat_x_0_img)
         yy, xx = shift2pos(self.wfm, cond_pars[:, 0], cond_pars[:, 1])
         return crop_batch(psf_batch, (yy, xx), (c_h // 2, c_w // 2))
 
     def forward(
         self,
-        pred_img: Tensor,
-        trg_img: Tensor,
-        pred_params: Tensor,
-        trg_params: Tensor,
-        cond_img: Tensor,
-        cond_pars: Tensor,
+        x_pred: tuple[Tensor, Tensor],
+        x_trg: tuple[Tensor, Tensor],
+        condition: tuple[Tensor, Tensor],
+        hat_x_0_img: Optional[Tensor] = None,
+        stable_pinn_weight: Optional[Tensor] = None,
     ) -> tuple[Tensor, Tensor, Tensor, Tensor | None]:
+        """
+        IROS joint-diffusion training objective computation, accounting for L2 loss for
+        predicted images and smooth-L1 loss for predicted parameters.\\
+        If PINN term is included, the signal converted back to x0-space MUST be provided,
+        and optionally the loss term can be weighted to stabilise noise levels at high t.
+        """
+        if self.include_pinn_term and not exists(hat_x_0_img):
+            raise ValueError("If PINN term is included, `hat_x_0_img` must be provided.")
+
+        pred_img, pred_params = x_pred
+        trg_img, trg_params = x_trg
+        cond_img, cond_pars = condition
+        
         # compute img loss (L2)
         loss_img = F.mse_loss(pred_img, trg_img, reduction='mean')
 
@@ -531,8 +546,10 @@ class JointDiffusionLoss(nn.Module):
         #       it consists of a cross-correalation and a weighted shift (linear operations)
         loss_pinn: Optional[Tensor] = None
         if self.include_pinn_term:
-            decoded_psf = self.extract_gen_src_psf(pred_img, cond_img, cond_pars)
+            decoded_psf = self.extract_gen_src_psf(hat_x_0_img, cond_img, cond_pars)
             loss_pinn = F.mse_loss(decoded_psf, cond_img, reduction='mean')
+            if exists(stable_pinn_weight):
+                loss_pinn = stable_pinn_weight * loss_pinn
         
         # total loss
         if self.use_homoscedastic_weights:
