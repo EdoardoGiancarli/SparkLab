@@ -375,6 +375,14 @@ class TestHelperFuncs(TestCase):
         cropped = crop(self.img, pos=(5, 5), crp=(2, 3))
         self.assertEqual(cropped.shape, (5, 7))
         self.assertEqual(cropped[2, 3].item(), 55.0)
+        # crop along col
+        cropped = crop(self.img, pos=(5, 5), crp=(0, 4))
+        self.assertEqual(cropped.shape, (1, 9))
+        self.assertEqual(cropped[0, -1].item(), 59.0)
+        # crop along row
+        cropped = crop(self.img, pos=(5, 5), crp=(4, 0))
+        self.assertEqual(cropped.shape, (9, 1))
+        self.assertEqual(cropped[-1, 0].item(), 95.0)
         return
 
     def test_crop_boundary(self):
@@ -403,9 +411,9 @@ class TestHelperFuncs(TestCase):
         # strict mode + out-of-bounds crop size
         with self.assertRaises(IndexError):
             crop(self.img, pos=(1, 1), crp=(3, 3), strict=True)
-        # crop size <= 0
+        # crop size < 0
         with self.assertRaises(ValueError):
-            crop(self.img, pos=(5, 5), crp=(0, 2))
+            crop(self.img, pos=(5, 5), crp=(-1, 2))
         return
 
     def test_crop_batch_pos_input(self):

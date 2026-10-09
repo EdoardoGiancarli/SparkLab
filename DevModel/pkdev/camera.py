@@ -910,10 +910,10 @@ def crop(
         - Negative indexes for `pos` are allowed.
     """
     *_, h, w = image.shape
-    crp_y, crp_x = crp
 
-    if (crp_y <= 0) or (crp_x <= 0):
-        raise ValueError("Cropping must be a tuple of positive integers.")
+    crp_y, crp_x = crp
+    if (crp_y < 0) or (crp_x < 0):
+        raise ValueError("Crop size must be a tuple of positive integers.")
 
     y = pos[0] + h if pos[0] < 0 else pos[0]
     x = pos[1] + w if pos[1] < 0 else pos[1]
@@ -921,7 +921,7 @@ def crop(
     boundary_y = ((0 <= y - crp_y) and (y + crp_y < h))
     boundary_x = ((0 <= x - crp_x) and (x + crp_x < w))
     if not (boundary_y and boundary_x):
-        msg = f'Cropping {crp} at pos {pos} exceeds tensor edges'
+        msg = f'Crop size {crp} at pos {pos} exceeds tensor edges'
         if not strict:
             crp_y, crp_x = min(y, h - y - 1), min(x, w - x - 1)
             print(f'UserInfo: {msg}, new cropping: {crp_y, crp_x}.')
@@ -971,9 +971,10 @@ def crop_batch(
     """
     device = image.device
     b, c, h, w = image.shape
+
     crp_y, crp_x = crp
-    if crp_y <= 0 or crp_x <= 0:
-        raise ValueError("Cropping must contain positive integers.")
+    if crp_y < 0 or crp_x < 0:
+        raise ValueError("Crop size must be a tuple of positive integers.")
 
     yy, xx = pos if isinstance(pos, tuple) else (pos[:, 0], pos[:, 1])
     if (yy < 0).any() or (xx < 0).any():
@@ -982,7 +983,7 @@ def crop_batch(
     boundary_y = (yy - crp_y >= 0) & (yy + crp_y < h)
     boundary_x = (xx - crp_x >= 0) & (xx + crp_x < w)
     if not (boundary_y.all() and boundary_x.all()):
-        raise IndexError("Cropping exceeds tensor edges for one or more items in batch.")
+        raise IndexError("Crop size exceeds tensor edges for one or more items in batch.")
 
     # create crop grid
     rows = torch.arange(-crp_y, crp_y + 1, device=device)
