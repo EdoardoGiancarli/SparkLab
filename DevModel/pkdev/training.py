@@ -330,7 +330,7 @@ def train_model(
             with autocast(device_type=device_type):
                 v_img_pred, v_pars_pred = model(x_t_img, x_t_pars, t, c_img, c_pars, **model_kws)
                 v_img_pred = mask_sdd_zero_response_area(camera, v_img_pred)
-                hat_x_0_img = sampler.extract_x0(v_img_pred, x_t_img, t)
+                hat_x_0_img = sampler.convert_to_x0(v_img_pred, x_t_img, t)
                 stable_pinn_weight = sampler.sqrt_alphas_cumprod.mean().pow(2)
                 tot_loss_val, *_ = loss_fn(                    
                     x_pred=(v_img_pred, v_pars_pred), 
@@ -384,7 +384,7 @@ def train_model(
                 with autocast(device_type=device_type):
                     v_img_pred, v_pars_pred = model(x_t_img, x_t_pars, t, c_img, c_pars, **model_kws)
                     v_img_pred = mask_sdd_zero_response_area(camera, v_img_pred)
-                    hat_x_0_img = sampler.extract_x0(v_img_pred, x_t_img, t)
+                    hat_x_0_img = sampler.convert_to_x0(v_img_pred, x_t_img, t)
                     stable_pinn_weight = sampler.sqrt_alphas_cumprod.mean().pow(2)
                     tot_loss_val, *_ = loss_fn(                    
                         x_pred=(v_img_pred, v_pars_pred), 

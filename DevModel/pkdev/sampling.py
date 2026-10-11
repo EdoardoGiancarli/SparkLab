@@ -170,7 +170,7 @@ class DPMSolverPP2MSampler(Sampler):
         self.old_x = None
         self.old_step = None
 
-    def extract_x0(self, model_out: Tensor, x_t: Tensor, t: Tensor) -> Tensor:
+    def convert_to_x0(self, model_out: Tensor, x_t: Tensor, t: Tensor) -> Tensor:
         """Converts model prediction to signal domain."""
         if self.pred_type == 'x0':
             return model_out
@@ -229,8 +229,8 @@ class DPMSolverPP2MSampler(Sampler):
             )
 
         # convert to x0 domain
-        x0_img = self.extract_x0(pred_img, x_img, t)
-        x0_pars = self.extract_x0(pred_pars, x_pars, t)
+        x0_img = self.convert_to_x0(pred_img, x_img, t)
+        x0_pars = self.convert_to_x0(pred_pars, x_pars, t)
 
         # extract noise schedule vals for current time `s` and prev time `t`
         img_ndims, pars_ndims = x_img.ndim, x_pars.ndim
