@@ -9,6 +9,7 @@ import logging
 from typing import Any, NamedTuple, Optional
 import json
 
+import torch
 from torch.utils.data import DataLoader
 import torch.optim as opt
 import wandb
@@ -272,10 +273,15 @@ def run_w_wnb(
 def train():
     args = parse_args()
     dirpaths = select_dirpaths()
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
     # define coded-mask camera obj
+    cmc_factory = dict(device=device)
     wfm = codedmask(
-        dirpaths.camera_path / args.mask_pattern, upscale_x=args.wfm_upfine, upscale_y=args.wfm_upcoarse,
+        mask_filepath=dirpaths.camera_path / args.mask_pattern,
+        upscale_x=args.wfm_upfine,
+        upscale_y=args.wfm_upcoarse,
+        **cmc_factory,
     )
 
     # config dataset + dataloaders
@@ -314,6 +320,7 @@ def train():
         lr_scheduler=partial(
             opt.lr_scheduler.ReduceLROnPlateau, patience=args.lr_patience, factor=args.lr_factor,
         ),
+        device=device,
         model_info={'project': args.project, 'runID': args.runID},
     )
     tpars = config_training(**tpars_factory)
