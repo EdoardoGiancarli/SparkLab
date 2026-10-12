@@ -775,6 +775,10 @@ def decode_batch(camera: CodedMaskCamera, detector: Tensor) -> Tensor:
     )
     cc = _correlate(dec, detector, mode='full', method='fft')
     sum_det, sum_bulk = detector.sum(dim=(-2, -1), keepdim=True), camera.bulk.sum()
+
+    # NOTE: temp add for pipeline tests
+    bal = F.interpolate(bal, size=cc.shape[-2:])
+
     cc_bal = cc - bal * sum_det / sum_bulk
     return cc_bal
 
