@@ -72,16 +72,17 @@ class TrainResults(NamedTuple):
 
 class ModelCompiler:
     """
-    Model compiler for increased performance, initialised with `torch.compile` kwargs.
-    Doc available on [Intro-to-compile](https://docs.pytorch.org/tutorials/intermediate/torch_compile_tutorial.html),
+    Model compiler for increased performance using TorchDynamo and specified backend,
+    initialised with `torch.compile` kwargs. Documentation and examples available on
+    [Intro-to-compile](https://docs.pytorch.org/tutorials/intermediate/torch_compile_tutorial.html),
     [End-to-End-app](https://docs.pytorch.org/tutorials/intermediate/torch_compile_full_example.html) 
     and [compile-decorator](https://docs.pytorch.org/docs/2.14/generated/torch.compile.html).
     """
     def __init__(self, kwargs: dict[str, Any]) -> None:
         self.kwargs = kwargs
 
-    def compile(self, model: nn.Module) -> nn.Module:
-        """Optimizes given model/function using TorchDynamo and specified backend."""
+    def compile(self, model: nn.Module) -> None:
+        """Compiles the model forward method in-place (via `nn.Module.compile()`)."""
         model.compile(**self.kwargs)
 
 
