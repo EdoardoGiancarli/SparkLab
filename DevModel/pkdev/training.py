@@ -287,6 +287,7 @@ def train_model(
     device = params.device
     device_type = device.type if isinstance(device, torch.device) else str(device).split(':')[0]
 
+    camera = camera.to(device)
     model = params.model.to(device)
     sampler = params.sampler.to(device)
     loss_fn = params.loss
