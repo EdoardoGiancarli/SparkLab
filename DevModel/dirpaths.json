@@ -2,7 +2,7 @@
     "codedmaskcamera_dirpath": {
         "win": "/mnt/d/PhD_AASS/Coding/Images_fits",
         "deb": "/mnt/dbb8f47e-da06-47bf-8ef5-038092af70f7/Edos_Magnificent_Manor/PhD_AASS/Coding/IROS_Data/Simulations",
-        "quasar": "/home/egiancarli/lem-x/Coding/CameraFiles"
+        "quasar": "/home/shared/wiseman_ref_files/camera/lem-x/parameters/mask/pattern"
     },
     "dataset_dirpath": {
         "win": "/mnt/d/PhD_AASS/Coding/IROS_Diffusion/SrcDiffusionDataset",
