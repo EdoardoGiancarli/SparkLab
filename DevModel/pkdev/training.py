@@ -17,6 +17,7 @@ from tqdm import tqdm
 
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from torch.amp import GradScaler, autocast
 from torch.types import Tensor
 from torch.utils.data import DataLoader
@@ -260,7 +261,10 @@ def config_training(
 
 def mask_sdd_zero_response_area(camera: CodedMaskCamera, detector: Tensor) -> Tensor:
     """Corrects given detector image for instrumental detector plane zero-response area."""
+    *_, det_shape = detector.shape
     sdd_active_area = (camera.bulk > 0)
+    if not sdd_active_area.shape == det_shape:
+        sdd_active_area = F.interpolate(sdd_active_area, det_shape)
     sdd_active_area = sdd_active_area if detector.ndim == 2 else sdd_active_area[None, None, ...]
     return detector * sdd_active_area
 
