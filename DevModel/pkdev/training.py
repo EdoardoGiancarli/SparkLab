@@ -262,9 +262,10 @@ def config_training(
 def mask_sdd_zero_response_area(camera: CodedMaskCamera, detector: Tensor) -> Tensor:
     """Corrects given detector image for instrumental detector plane zero-response area."""
     sdd_active_area = (camera.bulk > 0)
+    if not sdd_active_area.shape == detector.shape[-2:]:
+        sdd_active_area = F.interpolate(sdd_active_area.view(1, 1, -1, -1), size=detector.shape[-2:])
+        sdd_active_area = sdd_active_area[0, 0]
     sdd_active_area = sdd_active_area if detector.ndim == 2 else sdd_active_area[None, None, ...]
-    if not sdd_active_area.shape == detector.shape:
-        sdd_active_area = F.interpolate(sdd_active_area, size=detector.shape)
     return detector * sdd_active_area
 
 
