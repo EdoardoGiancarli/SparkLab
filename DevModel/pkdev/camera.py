@@ -491,8 +491,8 @@ class CodedMaskCamera:
 
     def to(self, device: str | torch.device) -> "CodedMaskCamera":
         """
-        Replaces instance updating the device. Reassignes bulk, mask,
-        decoder or balancing tensors if already computed once.
+        Replaces instance updating the device. Reassignes sky binning grid, bulk,
+        mask, decoder or balancing tensors if already computed once.
         """
         if str(device) == str(self.device):
             return self
@@ -500,6 +500,10 @@ class CodedMaskCamera:
         # creates new instance with updated device
         new_cam = replace(self, device=device)
 
+        # reassign sky bins
+        if 'bins_sky' in self.__dict__:
+            bx, by = self.bins_sky
+            new_cam.__dict__[attr] = BinsRectangular(bx.to(device), by.to(device))
         # reassign any tensor already computed
         for attr in ('bulk', 'mask', 'decoder', 'balancing'):
             if attr in self.__dict__:
@@ -618,11 +622,13 @@ class CodedMaskCamera:
                 binsd.x[0] + binsm.x[0] + xstep / 2,
                 binsd.x[-1] + binsm.x[-1] - xstep / 2,
                 self.shape_sky[1] + 1,
+                device=self.device,
             ),
             torch.linspace(
                 binsd.y[0] + binsm.y[0] + ystep / 2,
                 binsd.y[-1] + binsm.y[-1] - ystep / 2,
                 self.shape_sky[0] + 1,
+                device=self.device,
             ),
         )
 

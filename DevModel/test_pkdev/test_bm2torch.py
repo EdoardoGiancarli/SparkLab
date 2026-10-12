@@ -285,6 +285,7 @@ class TestCMC(TestCase):
             wfm = wfm.to('cuda')
             self.assertEqual(str(wfm.device).split(':')[0], 'cuda')
             self.assertEqual(str(wfm.bulk.device).split(':')[0], 'cuda')
+            self.assertEqual(str(wfm.bins_sky.x.device).split(':')[0], 'cuda')
         else:
             print('\n[INFO] cuda not available, skipped `test_move_to_device()` in TestCMC.\n')
         return
