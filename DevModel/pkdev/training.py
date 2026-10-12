@@ -34,6 +34,7 @@ __all__ = [
     'set_default',
     'TrainParams',
     'TrainResults',
+    'ModelCompiler',
     'CheckPointManager',
     'execute_every',
     'log_with_wandb',
@@ -66,6 +67,21 @@ class TrainResults(NamedTuple):
     """
     train_loss: Tensor
     valid_loss: Tensor
+
+
+class ModelCompiler:
+    """
+    Model compiler for increased performance, initialised with `torch.compile` kwargs.
+    Doc available on [Intro-to-compile](https://docs.pytorch.org/tutorials/intermediate/torch_compile_tutorial.html),
+    [End-to-End-app](https://docs.pytorch.org/tutorials/intermediate/torch_compile_full_example.html) 
+    and [compile-decorator](https://docs.pytorch.org/docs/2.14/generated/torch.compile.html).
+    """
+    def __init__(self, kwargs: dict[str, Any]) -> None:
+        self.kwargs = kwargs
+
+    def compile(self, model: nn.Module) -> nn.Module:
+        """Optimizes given model/function using TorchDynamo and specified backend."""
+        model.compile(**self.kwargs)
 
 
 class CheckPointManager:
@@ -258,6 +274,7 @@ def train_model(
     valid_dl: DataLoader,
     wandb_logger: Optional[Run] = None,
     ckpnt_manager: Optional[CheckPointManager] = None,
+    model_compiler: Optional[ModelCompiler] = None,
     **model_kws,
 ) -> TrainResults:
     """
@@ -290,6 +307,9 @@ def train_model(
     avg_train_loss, avg_valid_loss = [], []
 
     # training loop
+    if exists(model_compiler):
+        model_compiler.compile(model)
+    
     loop = tqdm(range(1, epochs + 1))
     for epoch in loop:
 

@@ -22,6 +22,7 @@ from pkdev.sampling import DPMSolverPP2MSampler
 from pkdev.training import (
     TrainParams,
     TrainResults,
+    ModelCompiler,
     CheckPointManager,
     config_training,
     train_model,
@@ -42,14 +43,14 @@ def parse_args() -> argparse.Namespace:
         description=descr,
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-
-    train_grp = parser.add_argument_group("Training Hyperparameters")        # -------------------------
+    # ------------------------------------------------------------------------------------------------------------------------------ #
+    train_grp = parser.add_argument_group("Training Hyperparameters")        #%%%%%%%%%%%%%%%%%%%%%%%%%#
     train_grp.add_argument("--epochs", type=int, required=True, help="Number of training epochs.")
     train_grp.add_argument("--lr", type=float, default=5e-3, help="Initial learning rate (default: %(default)s).")
     train_grp.add_argument("--lr_patience", type=int, default=10, help="Epochs to wait before reducing learning rate (default: %(default)s).")
     train_grp.add_argument("--lr_factor", type=float, default=0.5, help="Learning rate reducing factor at plateau (default: %(default)s).")
 
-    data_grp = parser.add_argument_group("Dataset Configuration")            # -------------------------
+    data_grp = parser.add_argument_group("Dataset Configuration")            #%%%%%%%%%%%%%%%%%%%%%%%%%#
     data_grp.add_argument("--batch_size", type=int, default=32, help="Batch size for training and validation (default: %(default)s).")
     data_grp.add_argument("--valid_size", type=float, default=0.2, help="Fraction of data to use for validation (default: %(default)s).")
     data_grp.add_argument("--datasetID", type=str, default='srcIROS_jointdiffusion.pt', help="Dataset ID (default: %(default)s).")
@@ -58,14 +59,17 @@ def parse_args() -> argparse.Namespace:
     )
     data_grp.add_argument("--reshape_mode", type=str, default='nearest', help="Shadowgrams interpolation mode (default: %(default)s).")
 
-    diff_grp = parser.add_argument_group("Diffusion Noise Scheduler")        # -------------------------
+    diff_grp = parser.add_argument_group("Diffusion Noise Scheduler")        #%%%%%%%%%%%%%%%%%%%%%%%%%#
     diff_grp.add_argument("--beta_start", type=float, default=1e-4, help="Noise schedule start value (default: %(default)s).")
     diff_grp.add_argument("--beta_end", type=float, default=0.02, help="Noise schedule end value (default: %(default)s).")
     diff_grp.add_argument("--timesteps", type=int, default=1000, help="Number of diffusion timesteps (default: %(default)s).")
 
-    data_grp = parser.add_argument_group("Coded-Mask Camera Configuration")  # -------------------------
+    data_grp = parser.add_argument_group("Coded-Mask Camera Configuration")  #%%%%%%%%%%%%%%%%%%%%%%%%%#
     data_grp.add_argument(
-        "--mask_pattern", type=str, default='mask_NTHT_20260129_CORRECTED.fits', help="Coded-mask file with camera specifics (default: %(default)s)."
+        "--mask_pattern",
+        type=str,
+        default='mask_NTHT_20260129_CORRECTED.fits',
+        help="Coded-mask file with camera specifics (default: %(default)s)."
     )
     data_grp.add_argument(
         "--wfm_upfine", type=int, default=2,
@@ -76,12 +80,12 @@ def parse_args() -> argparse.Namespace:
         help="Upsampling factor for digital binning structure along the camera COARSE axis (default: %(default)s).",
     )
 
-    wnb_grp = parser.add_argument_group("WnB Logging")                       # -------------------------
+    wnb_grp = parser.add_argument_group("WnB Logging")                       #%%%%%%%%%%%%%%%%%%%%%%%%%#
     wnb_grp.add_argument("--project", type=str, default='Src-Joint-Diffusion', help="WnB project name (default: %(default)s).")
     wnb_grp.add_argument("--runID", type=str, required=True, help="WnB run ID.")
     wnb_grp.add_argument("--wnbkeypath", type=str, default=None, help="Path to JSON file containing WnB API key (default: %(default)s).")
 
-    ckpt_grp = parser.add_argument_group("Checkpoint and Early Stopping")    # -------------------------
+    ckpt_grp = parser.add_argument_group("Checkpoint and Early Stopping")    #%%%%%%%%%%%%%%%%%%%%%%%%%#
     ckpt_grp.add_argument(
         "--log_ckpnt_every", type=int, default=None, help="Epoch interval to save model checkpoint (if None defaults to `epochs // 10`).",
     )
@@ -92,10 +96,16 @@ def parse_args() -> argparse.Namespace:
         "--patience_bestmodel",
         type=int,
         default=None,
-        help="Window size for evaluating best model improvements (if None AND best model check enabled, defaults to `log_bestmodel_every // 2`).",
+        help=(
+            "Window size for evaluating best model improvements (if None AND best "
+            "model check enabled, defaults to `log_bestmodel_every // 2`)."
+        ),
     )
     ckpt_grp.add_argument(
-        "--check_training_every", type=int, default=None, help="Epoch interval to check for early stopping conditions (default: %(default)s).",
+        "--check_training_every",
+        type=int,
+        default=None,
+        help="Epoch interval to check for early stopping conditions (default: %(default)s).",
     )
     ckpt_grp.add_argument(
         "--patience_train",
@@ -104,14 +114,17 @@ def parse_args() -> argparse.Namespace:
         help="Patience for overall early stopping (if None AND model train check, defaults to `check_training_every // 2`).",
     )
 
-    model_grp = parser.add_argument_group("Model Architecture Parameters")   # -------------------------
+    model_grp = parser.add_argument_group("Model Architecture Parameters")   #%%%%%%%%%%%%%%%%%%%%%%%%%#
     model_grp.add_argument("--dim", type=int, default=8, help="Base dimension (default: %(default)s).")
     model_grp.add_argument(
         "--dim_mults",
         type=int,
         nargs='+',
         default=[1, 2, 4, 8],
-        help="Dimension multipliers, also config arch depth as `len(dim_mults) - 1`. Pass values separated by spaces, default: %(default)s.",
+        help=(
+            "Dimension multipliers, also config arch depth as `len(dim_mults) - 1`. "
+            "Pass values separated by spaces, default: %(default)s."
+        ),
     )
     model_grp.add_argument("--bottleneck_blocks", type=int, default=1, help="Number of bottleneck blocks (default: %(default)s).")
     model_grp.add_argument("--drop_cond_prob", type=float, default=0.5, help="Condition dropout probability (default: %(default)s).")
@@ -119,6 +132,12 @@ def parse_args() -> argparse.Namespace:
     model_grp.add_argument("--attn_dim_head", type=int, default=16, help="Attention head dimension (default: %(default)s).")
     model_grp.add_argument("--attn_heads", type=int, default=4, help="Number of attention heads (default: %(default)s).")
     model_grp.add_argument("--convnext_mult", type=int, default=2, help="ConvNeXt dimension multiplier (default: %(default)s).")
+
+    model_compiler_grp = parser.add_argument_group("Model GPU Compilation")  #%%%%%%%%%%%%%%%%%%%%%%%%%#
+    model_compiler_grp.add_argument(
+        "--compile_model", action="store_true", help="Flag for model compilation through `torch.compile` (default: %(default)s)."
+    )
+    # ------------------------------------------------------------------------------------------------------------------------------ #
 
     args = parser.parse_args()
 
@@ -198,6 +217,7 @@ def run_w_wnb(
     learning_rate: float,
     dataloaders: tuple[DataLoader, Optional[DataLoader]],
     ckpnt_manager: Optional[CheckPointManager] = None,
+    model_compiler: Optional[ModelCompiler] = None,
     entity: Optional[str] = None,
     **model_kws: Any,
 ) -> TrainResults:
@@ -228,8 +248,9 @@ def run_w_wnb(
                 learning_rate=learning_rate,
                 train_dl=train_dl,
                 valid_dl=valid_dl,
-                ckpnt_manager=ckpnt_manager,
                 wandb_logger=logger,
+                ckpnt_manager=ckpnt_manager,
+                model_compiler=model_compiler,
                 **model_kws,
             )
         except Exception as e:
@@ -271,7 +292,7 @@ def train():
 
     train_dl, valid_dl = get_dataloaders(dataset, args.batch_size, args.valid_size)
 
-    # noise scheduler + define training params + CheckPointManager
+    # noise scheduler + define model & training params
     scheduler = pk.NoiseScheduler(args.timesteps)
     betas = scheduler.cosine()
 
@@ -297,6 +318,7 @@ def train():
     )
     tpars = config_training(**tpars_factory)
 
+    # init CheckPointManager + ModelCompiler
     mng_factory = dict(
         log_ckpnt_every=args.log_ckpnt_every,
         savepath=dirpaths.chkpnt_path,
@@ -306,6 +328,12 @@ def train():
         patience_train=args.patience_train,
     )
     chkpnt_mng = CheckPointManager(**mng_factory)
+
+    if args.compile_model:
+        compiler_factory = dict()
+        model_compiler = ModelCompiler(**compiler_factory)
+    else:
+        model_compiler = None
 
     # train model
     wnb_login(args.wnbkeypath)
@@ -318,6 +346,7 @@ def train():
         learning_rate=args.lr,
         dataloaders=(train_dl, valid_dl),
         ckpnt_manager=chkpnt_mng,
+        model_compiler=model_compiler,
     )
 
     # save trained model + results
@@ -355,6 +384,9 @@ def train():
 
                 'camera_binning_upsampling_xy': (wfm.upscale_x, wfm.upscale_y),
                 'camera_bulk_artefact_mask_xy': (wfm.hide_bulk_els_x, wfm.hide_bulk_els_y),
+
+                'model_compilation': args.compile_model,
+                'compiler_setup': 'default',
             },
         }
     )
