@@ -50,6 +50,9 @@ def parse_args() -> argparse.Namespace:
     train_grp.add_argument("--lr", type=float, default=5e-3, help="Initial learning rate (default: %(default)s).")
     train_grp.add_argument("--lr_patience", type=int, default=10, help="Epochs to wait before reducing learning rate (default: %(default)s).")
     train_grp.add_argument("--lr_factor", type=float, default=0.5, help="Learning rate reducing factor at plateau (default: %(default)s).")
+    train_grp.add_argument(
+        "--include_pinn_term", action="store_true", help="Flag for including PINN term in training loss computation (default: %(default)s)."
+    )
 
     data_grp = parser.add_argument_group("Dataset Configuration")            #%%%%%%%%%%%%%%%%%%%%%%%%%#
     data_grp.add_argument("--batch_size", type=int, default=32, help="Batch size for training and validation (default: %(default)s).")
@@ -65,18 +68,18 @@ def parse_args() -> argparse.Namespace:
     diff_grp.add_argument("--beta_end", type=float, default=0.02, help="Noise schedule end value (default: %(default)s).")
     diff_grp.add_argument("--timesteps", type=int, default=1000, help="Number of diffusion timesteps (default: %(default)s).")
 
-    data_grp = parser.add_argument_group("Coded-Mask Camera Configuration")  #%%%%%%%%%%%%%%%%%%%%%%%%%#
-    data_grp.add_argument(
+    mask_grp = parser.add_argument_group("Coded-Mask Camera Configuration")  #%%%%%%%%%%%%%%%%%%%%%%%%%#
+    mask_grp.add_argument(
         "--mask_pattern",
         type=str,
         default='mask_NTHT_20260129_CORRECTED.fits',
         help="Coded-mask file with camera specifics (default: %(default)s)."
     )
-    data_grp.add_argument(
+    mask_grp.add_argument(
         "--wfm_upfine", type=int, default=2,
         help="Upsampling factor for digital binning structure along the camera FINE axis (default: %(default)s).",
     )
-    data_grp.add_argument(
+    mask_grp.add_argument(
         "--wfm_upcoarse", type=int, default=1,
         help="Upsampling factor for digital binning structure along the camera COARSE axis (default: %(default)s).",
     )
@@ -315,7 +318,7 @@ def train():
     tpars_factory = dict(
         model=model,
         sampler=DPMSolverPP2MSampler(betas, pred_type='v'),
-        loss=JointDiffusionLoss(wfm),
+        loss=JointDiffusionLoss(wfm, include_pinn_term=args.include_pinn_term),
         optimiser=opt.Adam,
         lr_scheduler=partial(
             opt.lr_scheduler.ReduceLROnPlateau, patience=args.lr_patience, factor=args.lr_factor,
@@ -382,6 +385,7 @@ def train():
                 'learning_rate': args.lr,
                 'lr_patience': args.lr_patience,
                 'lr_factor': args.lr_factor,
+                'pinn_term': args.include_pinn_term,
             
                 'log_ckpnt_every': args.log_ckpnt_every,
                 'log_bestmodel_every': args.log_bestmodel_every,
