@@ -622,12 +622,14 @@ class CodedMaskCamera:
                 binsd.x[0] + binsm.x[0] + xstep / 2,
                 binsd.x[-1] + binsm.x[-1] - xstep / 2,
                 self.shape_sky[1] + 1,
+                dtype=torch.float64,
                 device=self.device,
             ),
             torch.linspace(
                 binsd.y[0] + binsm.y[0] + ystep / 2,
                 binsd.y[-1] + binsm.y[-1] - ystep / 2,
                 self.shape_sky[0] + 1,
+                dtype=torch.float64,
                 device=self.device,
             ),
         )
