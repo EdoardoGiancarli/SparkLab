@@ -81,9 +81,9 @@ class ModelCompiler:
     def __init__(self, kwargs: dict[str, Any]) -> None:
         self.kwargs = kwargs
 
-    def compile(self, model: nn.Module) -> None:
-        """Compiles the model forward method in-place (via `nn.Module.compile()`)."""
-        model.compile(**self.kwargs)
+    def compile(self, model: nn.Module) -> nn.Module:
+        """Compiles the given model via `torch.compile()`."""
+        return torch.compile(model, **self.kwargs)
 
 
 class CheckPointManager:
@@ -315,10 +315,13 @@ def train_model(
     ntsteps = len(sampler.sqrt_alphas_cumprod)
     avg_train_loss, avg_valid_loss = [], []
 
+    if exists(model_compiler):
+        print('[UserInfo] Compiling model, may take a few minutes.')
+        model = model_compiler.compile(model)
+        print('[UserInfo] Model successfully compiled!')
+
     # training loop
     loop = tqdm(range(1, epochs + 1))
-    if exists(model_compiler): model_compiler.compile(model)
-
     for epoch in loop:
 
         if stop_training:
