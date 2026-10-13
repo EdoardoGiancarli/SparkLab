@@ -316,10 +316,9 @@ def train_model(
     avg_train_loss, avg_valid_loss = [], []
 
     # training loop
-    if exists(model_compiler):
-        model_compiler.compile(model)
-    
     loop = tqdm(range(1, epochs + 1))
+    if exists(model_compiler): model_compiler.compile(model)
+
     for epoch in loop:
 
         if stop_training:
