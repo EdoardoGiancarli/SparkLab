@@ -341,7 +341,7 @@ def train():
 
     if args.compile_model:
         compiler_factory = dict()
-        model_compiler = ModelCompiler(**compiler_factory)
+        model_compiler = ModelCompiler(compiler_factory)
     else:
         model_compiler = None
 
