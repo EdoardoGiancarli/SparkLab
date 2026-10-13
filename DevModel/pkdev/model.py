@@ -508,7 +508,8 @@ class JointDiffusionLoss(nn.Module):
         """
         *_, c_h, c_w = cond_img.shape
         psf_batch = decode_batch(self.wfm, hat_x_0_img)
-        yy, xx = shift2pos(self.wfm, cond_pars[:, 0], cond_pars[:, 1])
+        sxx_, syy_ = cond_pars[:, 0].contiguous(), cond_pars[:, 1].contiguous()
+        yy, xx = shift2pos(self.wfm, sxx_, syy_)
         return crop_batch(psf_batch, (yy, xx), (c_h // 2, c_w // 2))
 
     def forward(
@@ -546,7 +547,7 @@ class JointDiffusionLoss(nn.Module):
         #       it consists of a cross-correalation and a weighted shift (linear operations)
         loss_pinn: Optional[Tensor] = None
         if self.include_pinn_term:
-            decoded_psf = self.extract_gen_src_psf(hat_x_0_img, cond_img, cond_pars)
+            decoded_psf = self.extract_gen_src_psf(hat_x_0_img, cond_img, cond_pars).to(hat_x_0_img.dtype)
             loss_pinn = F.mse_loss(decoded_psf, cond_img, reduction='mean')
             if exists(stable_pinn_weight):
                 loss_pinn = stable_pinn_weight * loss_pinn
