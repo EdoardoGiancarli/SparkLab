@@ -238,7 +238,7 @@ def config_training(
     sampler: Sampler,
     loss: Callable,
     optimiser: Callable,
-    lr_scheduler: Callable,
+    lr_scheduler: Optional[Callable] = None,
     device: Optional[str | torch.device] = None,
     model_info: Optional[dict[str, Any]] = None,
     verbose: bool = True,
@@ -256,6 +256,7 @@ def config_training(
             f'  - operating on device: {device}\n'
             f'  - model parameters: {n_params:,}\n'
         )
+    lr_scheduler = set_default(lr_scheduler, lambda opt: None)
     tp = TrainParams(model, sampler, loss, optimiser, lr_scheduler, device, model_info)
     return tp
 
@@ -264,8 +265,11 @@ def mask_sdd_zero_response_area(camera: CodedMaskCamera, detector: Tensor) -> Te
     """Corrects given detector image for instrumental detector plane zero-response area."""
     sdd_active_area = (camera.bulk > 0)
     sdd_active_area = sdd_active_area if detector.ndim == 2 else sdd_active_area[None, None, ...]
+
+    # NOTE: temp add for pipeline tests
     if not sdd_active_area.shape[-2:] == detector.shape[-2:]:
-        sdd_active_area = F.interpolate(sdd_active_area.to(torch.float32), size=detector.shape[-2:])
+        sdd_active_area = F.interpolate(sdd_active_area.to(detector.dtype), size=detector.shape[-2:])
+    
     return detector * sdd_active_area
 
 
@@ -487,10 +491,11 @@ def train_model(
                 )
 
         # lr update
-        try:
-            lr_scheduler.step(avg_valid_loss[-1])
-        except TypeError:
-            lr_scheduler.step()
+        if exists(lr_scheduler):
+            try:
+                lr_scheduler.step(avg_valid_loss[-1])
+            except TypeError:
+                lr_scheduler.step()
     
     return TrainResults(*tuple(map(torch.tensor, (avg_train_loss, avg_valid_loss))))
 
