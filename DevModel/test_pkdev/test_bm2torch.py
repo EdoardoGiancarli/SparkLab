@@ -44,6 +44,7 @@ from pkdev.camera import (
     find_boxmax,
     crop,
     crop_batch,
+    shift2pos,
 )
 
 from .assets import maskpath
@@ -60,6 +61,9 @@ class TestCustomFuncs(TestCase):
     """
     Test class for the `_bisect_left`, `_bisect_right`, `_bisect_interval`, `_upscale`, `_shift`, `_correlate` funcs.
     """
+    def setUp(self):
+        self.wfm = codedmask(maskpath, 5, 2)
+    
     def test_bisect_fns(self):
         """Test func for `_bisect_left`, `_bisect_right`."""
         val = 10.0
@@ -196,6 +200,24 @@ class TestCustomFuncs(TestCase):
 
         res = cc_direct - cc_fft
         assert_tensor_allclose(res, eps=1e-6, msg=f'mean_res (@ 3sigma) = {res.mean().item()} +/- {3 * res.std().item()}')
+        return
+
+    def test_shift2pos(self):
+        """Test func for `shift2pos`, from https://github.com/EdoardoGiancarli/bloodmoon/blob/newSG/tests/test_pos_shifts.py."""
+        n, m = self.wfm.shape_sky
+
+        xbin = self.wfm.bins_sky.x[1] - self.wfm.bins_sky.x[0]
+        self.assertEqual(shift2pos(self.wfm, 0.0, 0.0), (n // 2, m // 2))
+        self.assertEqual(shift2pos(self.wfm, xbin / 4, 0.0), (n // 2, m // 2))
+        self.assertEqual(shift2pos(self.wfm, xbin, 0.0), (n // 2, m // 2 + 1))
+        self.assertEqual(shift2pos(self.wfm, -xbin / 4, 0.0), (n // 2, m // 2))
+        self.assertEqual(shift2pos(self.wfm, -xbin, 0.0), (n // 2, m // 2 - 1))
+
+        ybin = self.wfm.bins_sky.y[1] - self.wfm.bins_sky.y[0]
+        self.assertEqual(shift2pos(self.wfm, 0.0, ybin / 4), (n // 2, m // 2))
+        self.assertEqual(shift2pos(self.wfm, 0.0, ybin), (n // 2 + 1, m // 2))
+        self.assertEqual(shift2pos(self.wfm, 0.0, -ybin / 4), (n // 2, m // 2))
+        self.assertEqual(shift2pos(self.wfm, 0.0, -ybin), (n // 2 - 1, m // 2))
         return
 
 
