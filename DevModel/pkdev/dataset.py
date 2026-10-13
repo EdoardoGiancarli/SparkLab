@@ -273,7 +273,7 @@ def get_dataset(
     if not pathslist:
         raise FileNotFoundError(f'No files matching pattern in {dirpath}.')
 
-    to_float32 = lambda x: torch.as_tensor(x, dtype=torch.float32)
+    to_tensor32f = lambda x: torch.as_tensor(x, dtype=torch.float32)
     
     for idx, dspath in tqdm(enumerate(pathslist), desc='Loading Data'):
         
@@ -282,15 +282,15 @@ def get_dataset(
         if data is None:
             continue
 
-        sgs, gtpars = map(to_float32, (tuple(data['data'].values())))
+        sgs, gtpars = map(to_tensor32f, (tuple(data['data'].values())))
         sgs_list.append(sgs)
         gtpars_list.append(gtpars)
 
-        psfs, extpars = map(to_float32, (tuple(data['conditioning'].values())))
+        psfs, extpars = map(to_tensor32f, (tuple(data['conditioning'].values())))
         psfs_list.append(psfs)
         extpars_list.append(extpars)
 
-        sg_fps, psfvars, extvars = map(to_float32, (tuple(data['info'].values())))
+        sg_fps, psfvars, extvars = map(to_tensor32f, (tuple(data['info'].values())))
         sg_fps_list.append(sg_fps)
         psfvars_list.append(psfvars)
         extvars_list.append(extvars)
