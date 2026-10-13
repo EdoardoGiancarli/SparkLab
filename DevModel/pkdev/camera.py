@@ -503,7 +503,7 @@ class CodedMaskCamera:
         # reassign sky bins
         if 'bins_sky' in self.__dict__:
             bx, by = self.bins_sky
-            new_cam.__dict__[attr] = BinsRectangular(bx.to(device), by.to(device))
+            new_cam.__dict__['bins_sky'] = BinsRectangular(bx.to(device), by.to(device))
         # reassign any tensor already computed
         for attr in ('bulk', 'mask', 'decoder', 'balancing'):
             if attr in self.__dict__:
