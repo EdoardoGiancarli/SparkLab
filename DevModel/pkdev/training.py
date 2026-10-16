@@ -150,9 +150,9 @@ class CheckPointManager:
         train_loss: Tensor,
         valid_loss: Tensor,
         tol_overfit: Optional[float] = None,
-        sigma_overfit: Optional[float] = 1.0,
+        sigma_overfit: Optional[float] = 3.0,
         tol_validloss: Optional[float] = None,
-        sigma_validloss: Optional[float] = 1.0,
+        sigma_validloss: Optional[float] = 3.0,
         patience: Optional[int] = None,
         compare_fn: Optional[Callable[[Tensor, Tensor], bool]] = None,
     ) -> bool:
@@ -190,7 +190,7 @@ class CheckPointManager:
         train_loss: Tensor,
         valid_loss: Tensor,
         tol_overfit: Optional[float] = None,
-        sigma_overfit: Optional[float] = 1.0,
+        sigma_overfit: Optional[float] = 3.0,
         patience: Optional[int] = None,
         compare_fn: Optional[Callable[[Tensor, Tensor], bool]] = None,
     ) -> tuple[bool, Optional[str]]:
