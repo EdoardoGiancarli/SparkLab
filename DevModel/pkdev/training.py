@@ -280,6 +280,7 @@ def train_model(
     learning_rate: float,
     train_dl: DataLoader,
     valid_dl: DataLoader,
+    accumulate_grad_every: Optional[int] = None,
     wandb_logger: Optional[Run] = None,
     ckpnt_manager: Optional[CheckPointManager] = None,
     model_compiler: Optional[ModelCompiler] = None,
@@ -288,9 +289,10 @@ def train_model(
     """
     Basic train routine, performed in the velocity space `v`.
     """
-    # setup model/optimiser/scaler for memory saving
+    # setup model/optimiser/scaler/batch gradient accumulation
     device = params.device
     device_type = device.type if isinstance(device, torch.device) else str(device).split(':')[0]
+    accumulate_grad_every = set_default(accumulate_grad_every, 1)
 
     camera = camera.to(device)
     model = params.model.to(device)
@@ -336,6 +338,8 @@ def train_model(
         running_batches = 0
         running_train_loss = 0.0
 
+        optimiser.zero_grad()
+
         for batch, (x, condition) in enumerate(islice(train_dl, tdl_len), start=1):
             loop.set_postfix({'batch': f'{batch}/{tdl_len}'})
 
@@ -357,12 +361,12 @@ def train_model(
                 (x_0_img, x_0_pars), (img_noise, pars_noise),
             )
 
-            optimiser.zero_grad()
             with autocast(device_type=device_type):
                 v_img_pred, v_pars_pred = model(x_t_img, x_t_pars, t, c_img, c_pars, **model_kws)
                 v_img_pred = mask_sdd_zero_response_area(camera, v_img_pred)
                 hat_x_0_img = sampler.convert_to_x0(v_img_pred, x_t_img, t)
                 stable_pinn_weight = sampler.sqrt_alphas_cumprod.mean().pow(2)
+
                 tot_loss_val, *_ = loss_fn(                    
                     x_pred=(v_img_pred, v_pars_pred), 
                     x_trg=(v_img_trg, v_pars_trg), 
@@ -371,15 +375,18 @@ def train_model(
                     stable_pinn_weight=stable_pinn_weight,
                 )
 
-            scaler.scale(tot_loss_val).backward()
-            scaler.step(optimiser)
-            scaler.update()
+            if tot_loss_val.isfinite():
+                scaler.scale(tot_loss_val / accumulate_grad_every).backward()
 
-            if tot_loss_val.isnan():
-                warnings.warn(f'Train loss NaN @ E: {epoch}, B: {batch}')
-            else:
                 running_batches += 1
                 running_train_loss += tot_loss_val.item()
+            else:
+                warnings.warn(f'Train loss NaN/inf @ E: {epoch}, B: {batch}')
+
+            if execute_every(batch, accumulate_grad_every) or batch == tdl_len:
+                scaler.step(optimiser)
+                scaler.update()
+                optimiser.zero_grad()
 
         avg_train_loss.append(running_train_loss / max(running_batches, 1))
 
@@ -417,6 +424,7 @@ def train_model(
                     v_img_pred = mask_sdd_zero_response_area(camera, v_img_pred)
                     hat_x_0_img = sampler.convert_to_x0(v_img_pred, x_t_img, t)
                     stable_pinn_weight = sampler.sqrt_alphas_cumprod.mean().pow(2)
+
                     tot_loss_val, *_ = loss_fn(                    
                         x_pred=(v_img_pred, v_pars_pred), 
                         x_trg=(v_img_trg, v_pars_trg), 
@@ -425,11 +433,11 @@ def train_model(
                         stable_pinn_weight=stable_pinn_weight,
                     )
     
-                if tot_loss_val.isnan():
-                    warnings.warn(f'Valid loss NaN @ E: {epoch}, B: {batch}')
-                else:
+                if tot_loss_val.isfinite():
                     running_valid_batches += 1
                     running_valid_loss += tot_loss_val.item()
+                else:
+                    warnings.warn(f'Valid loss NaN/inf @ E: {epoch}, B: {batch}')
 
         avg_valid_loss.append(running_valid_loss / max(running_valid_batches, 1))
 
@@ -448,8 +456,19 @@ def train_model(
 
         # model checkpoint
         if exists(ckpnt_manager):
+            # NOTE: model checkpoints are saved using the non-compiled `state_dict` to avoid
+            #       compatibility issues when loading and applying model in different scenarios
+            # NOTE: if compiling the model with `torch.compile()`, the prefix '_orig_mod' is added
+            #       to the compiled model's weights within the `state_dict` AND the model becomes
+            #       an OptimizedModule instance;
+            #       WHILE when calling `model.compile()` this does not seem to happen (at least by
+            #       `print(model.state_dict())` and `print(model.__class__.__name__`)
+            # https://discuss.pytorch.org/t/how-to-save-load-a-model-with-torch-compile/179739
+            # https://github.com/pytorch/pytorch/issues/101107#issuecomment-1542688089
+            noncomp_model = getattr(model, '_orig_mod', model)
+
             if execute_every(epoch, ckpnt_manager.log_ckpnt_every):
-                name = f'model_{model.__class__.__name__}_ckpnt{ckpnt_manager.checkpointID}_E{epoch}.pt'
+                name = f'model_{noncomp_model.__class__.__name__}_ckpnt{ckpnt_manager.checkpointID}_E{epoch}.pt'
                 info = {
                     'epoch': epoch,
                     'train_loss': avg_train_loss,
@@ -458,7 +477,7 @@ def train_model(
                     **(params.model_info if exists(params.model_info) else {}),
                 }
                 ckpnt_manager.save_checkpoint(
-                    state_dict=model.state_dict(),
+                    state_dict=noncomp_model.state_dict(),
                     name=name,
                     info=info,
                 )
@@ -470,7 +489,7 @@ def train_model(
                     valid_loss=torch.tensor(avg_valid_loss),    
                 )
                 if save_best:
-                    name = f'bestmodel_{model.__class__.__name__}.pt'
+                    name = f'bestmodel_{noncomp_model.__class__.__name__}.pt'
                     info = {
                         'epoch': epoch,
                         'train_loss': avg_train_loss,
@@ -479,7 +498,7 @@ def train_model(
                         **(params.model_info if exists(params.model_info) else {}),
                     }
                     ckpnt_manager.save_checkpoint(
-                        state_dict=model.state_dict(),
+                        state_dict=noncomp_model.state_dict(),
                         name=name,
                         info=info,
                         overwrite=True,

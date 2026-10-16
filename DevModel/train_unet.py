@@ -141,6 +141,14 @@ def parse_args() -> argparse.Namespace:
     model_compiler_grp.add_argument(
         "--compile_model", action="store_true", help="Flag for model compilation through `torch.compile` (default: %(default)s)."
     )
+
+    grad_accum_grp = parser.add_argument_group("Batch Gradient Accumulation")  #%%%%%%%%%%%%%%%%%%%%%%%%%#
+    grad_accum_grp.add_argument(
+        "--accumulate_grad_every",
+        type=int,
+        default=1,
+        help="Batches stepsize for loss grad accumulation, so that `eff_batch = batch x acc_grad_every` (default: %(default)s)."
+    )
     # ------------------------------------------------------------------------------------------------------------------------------ #
 
     args = parser.parse_args()
@@ -220,6 +228,7 @@ def run_w_wnb(
     epochs: int,
     learning_rate: float,
     dataloaders: tuple[DataLoader, Optional[DataLoader]],
+    accumulate_grad_every: Optional[int] = None,
     ckpnt_manager: Optional[CheckPointManager] = None,
     model_compiler: Optional[ModelCompiler] = None,
     entity: Optional[str] = None,
@@ -252,6 +261,7 @@ def run_w_wnb(
                 learning_rate=learning_rate,
                 train_dl=train_dl,
                 valid_dl=valid_dl,
+                accumulate_grad_every=accumulate_grad_every,
                 wandb_logger=logger,
                 ckpnt_manager=ckpnt_manager,
                 model_compiler=model_compiler,
@@ -355,13 +365,15 @@ def train():
         epochs=args.epochs,
         learning_rate=args.lr,
         dataloaders=(train_dl, valid_dl),
+        accumulate_grad_every=args.accumulate_grad_every,
         ckpnt_manager=chkpnt_mng,
         model_compiler=model_compiler,
     )
 
-    # save trained model + results
+    # save trained model (accounting for model compiling) + results
+    out_model = getattr(tpars.model, '_orig_mod', tpars.model)
     pk.save_model(
-        state_dict=tpars.model.state_dict(),
+        state_dict=out_model.state_dict(),
         save_to=dirpaths.chkpnt_path / f'../unet_jointdiffusion-{args.runID}.pt',
         info={
             'loss': {
@@ -380,6 +392,7 @@ def train():
 
                 'datasetID': args.datasetID,
                 'batch_size': args.batch_size,
+                'accumulate_grad_every': args.accumulate_grad_every,
                 'valid_size': args.valid_size,
                 'epochs': args.epochs,
                 'learning_rate': args.lr,
