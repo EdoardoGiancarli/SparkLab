@@ -77,6 +77,9 @@ class ModelCompiler:
     [Intro-to-compile](https://docs.pytorch.org/tutorials/intermediate/torch_compile_tutorial.html),
     [End-to-End-app](https://docs.pytorch.org/tutorials/intermediate/torch_compile_full_example.html) 
     and [compile-decorator](https://docs.pytorch.org/docs/2.14/generated/torch.compile.html).
+
+    NOTE: Once compiled, the model becomes an `OptimizedModule` instance. Its `state_dict` differs
+          from a normal `nn.Module` one as the modules are expressed with the `_orig_mod` prefix.
     """
     def __init__(self, kwargs: dict[str, Any]) -> None:
         self.kwargs = kwargs
@@ -367,10 +370,10 @@ def train_model(
                 hat_x_0_img = sampler.convert_to_x0(v_img_pred, x_t_img, t)
                 stable_pinn_weight = sampler.sqrt_alphas_cumprod.mean().pow(2)
 
-                tot_loss_val, *_ = loss_fn(                    
-                    x_pred=(v_img_pred, v_pars_pred), 
-                    x_trg=(v_img_trg, v_pars_trg), 
-                    condition=(c_img, c_pars), 
+                tot_loss_val, *_ = loss_fn(
+                    x_pred=(v_img_pred, v_pars_pred),
+                    x_trg=(v_img_trg, v_pars_trg),
+                    condition=(c_img, c_pars),
                     hat_x_0_img=hat_x_0_img,
                     stable_pinn_weight=stable_pinn_weight,
                 )
@@ -425,10 +428,10 @@ def train_model(
                     hat_x_0_img = sampler.convert_to_x0(v_img_pred, x_t_img, t)
                     stable_pinn_weight = sampler.sqrt_alphas_cumprod.mean().pow(2)
 
-                    tot_loss_val, *_ = loss_fn(                    
-                        x_pred=(v_img_pred, v_pars_pred), 
-                        x_trg=(v_img_trg, v_pars_trg), 
-                        condition=(c_img, c_pars), 
+                    tot_loss_val, *_ = loss_fn(
+                        x_pred=(v_img_pred, v_pars_pred),
+                        x_trg=(v_img_trg, v_pars_trg),
+                        condition=(c_img, c_pars),
                         hat_x_0_img=hat_x_0_img,
                         stable_pinn_weight=stable_pinn_weight,
                     )
