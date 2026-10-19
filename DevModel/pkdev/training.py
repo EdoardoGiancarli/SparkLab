@@ -78,7 +78,8 @@ class ModelCompiler:
     [End-to-End-app](https://docs.pytorch.org/tutorials/intermediate/torch_compile_full_example.html) 
     and [compile-decorator](https://docs.pytorch.org/docs/2.14/generated/torch.compile.html).
 
-    NOTE: Once compiled, the model becomes an `OptimizedModule` instance. Its `state_dict` differs
+    ## Notes
+        - Once compiled, the model becomes an `OptimizedModule` instance. Its `state_dict` differs
           from a normal `nn.Module` one as the modules are expressed with the `_orig_mod` prefix.
     """
     def __init__(self, kwargs: dict[str, Any]) -> None:
